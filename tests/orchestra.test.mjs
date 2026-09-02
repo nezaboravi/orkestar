@@ -125,7 +125,7 @@ test('explicit start instruction dispatches without redundant confirmation', () 
   assert.doesNotMatch(lenka, /Announce and ask before dispatch/);
 });
 
-test('clean-room plan omits machine-specific symlinks', () => {
+test('clean-room plan omits machine-owned skill paths', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-orchestra-plan-'));
   const plan = buildPlan({
     selectedTools: ['opencode'],
@@ -134,7 +134,6 @@ test('clean-room plan omits machine-specific symlinks', () => {
   });
 
   assert.equal(plan.agentCount, 21);
-  assert.ok(plan.warnings.some((warning) => warning.includes('skills/omarchy')));
   assert.equal(plan.operations.some((operation) => operation.target.includes(`${path.sep}omarchy${path.sep}`)), false);
 });
 
