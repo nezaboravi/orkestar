@@ -159,6 +159,10 @@ function run(command, args, options = {}) {
   return result.status ?? 1;
 }
 
+function shouldOpenHerdr(options, environment = process.env) {
+  return options.herdr && environment.HERDR_ENV !== '1';
+}
+
 function launchInstalledRuntime(runtime, options) {
   console.log('\nLenka is ready.');
   console.log(`Project: ${options.project}`);
@@ -176,8 +180,8 @@ function launchInstalledRuntime(runtime, options) {
     AGENT_ORCHESTRA_PRIMARY_MODEL: runtime.manifest.primary.model,
     AGENT_ORCHESTRA_REASONING_EFFORT: runtime.manifest.primary.reasoningEffort || '',
   };
-  if (!options.herdr) {
-    console.log('Workspace: direct CLI');
+  if (!shouldOpenHerdr(options)) {
+    console.log(process.env.HERDR_ENV === '1' ? 'Workspace: current Herdr pane' : 'Workspace: direct CLI');
     return run(process.execPath, [path.join(repoRoot, 'harness-launcher.mjs')], { cwd: options.project, env });
   }
 
@@ -288,4 +292,4 @@ if (invokedFile === fileURLToPath(import.meta.url)) {
   }
 }
 
-export { main, manifests, parse, selectInstalledRuntime };
+export { main, manifests, parse, selectInstalledRuntime, shouldOpenHerdr };

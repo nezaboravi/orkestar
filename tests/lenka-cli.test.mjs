@@ -52,6 +52,13 @@ test('Lenka accepts terminal punctuation and supports direct mode', async () => 
   assert.equal(parse(['UP', '--direct']).herdr, false);
 });
 
+test('Lenka reuses the current Herdr pane instead of starting nested Herdr', async () => {
+  const { shouldOpenHerdr } = await import('../lenka.mjs');
+  assert.equal(shouldOpenHerdr({ herdr: true }, { HERDR_ENV: '1' }), false);
+  assert.equal(shouldOpenHerdr({ herdr: true }, {}), true);
+  assert.equal(shouldOpenHerdr({ herdr: false }, {}), false);
+});
+
 test('Lenka reuses a verified global runtime without a project reinstall', async () => {
   const { selectInstalledRuntime } = await import('../lenka.mjs');
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lenka-global-runtime-'));

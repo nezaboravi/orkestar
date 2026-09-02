@@ -277,6 +277,10 @@ If an adapter cannot start, the pane remains a usable shell and the diagnostic
 is recorded under `~/.local/share/agent-orchestra/` instead of entering a
 terminal restart loop.
 
+Running `lenka up` from a shell that is already inside Herdr reuses that pane
+and starts the selected CLI there. It never attempts to nest a second Herdr
+session.
+
 For a Codex launch, Orkestar trusts only the exact active project for that
 invocation. This removes Codex's first-run confirmation without changing the
 user's global Codex trust settings.
