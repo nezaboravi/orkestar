@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nezaboravi/orkestar/schemas/orchestra.schema.json",
+  "title": "agent-orchestra configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runtime", "portability", "team", "agentFactory", "modelPolicy", "safety", "evidence"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "harness", "fallbackOrder", "optionalWorkspace", "desktopRequired"],
+      "properties": {
+        "primary": { "const": "direct-cli" },
+        "harness": { "const": "auto" },
+        "optionalWorkspace": { "const": "herdr" },
+        "fallbackOrder": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "enum": ["codex", "claude", "kimi", "opencode"] },
+          "uniqueItems": true
+        },
+        "desktopRequired": { "const": false }
+      }
+    },
+    "portability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["excludedSkillPaths"],
+      "properties": {
+        "excludedSkillPaths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        }
+      }
+    },
+    "team": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "entrypoint", "workflow"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "entrypoint": { "type": "string", "minLength": 1 },
+        "workflow": {
+          "type": "array",
+          "minItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["phase", "role"],
+            "properties": {
+              "phase": { "enum": ["plan", "build", "verify", "prove"] },
+              "role": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "agentFactory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "lifecycle", "unknownCapabilityPolicy", "requireExactPermissionEnvelope", "requireIndependentProofAfterWrites", "profiles"],
+      "properties": {
+        "enabled": { "const": true },
+        "lifecycle": { "const": "one-run" },
+        "unknownCapabilityPolicy": { "const": "fail-closed" },
+        "requireExactPermissionEnvelope": { "const": true },
+        "requireIndependentProofAfterWrites": { "const": true },
+        "profiles": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["template", "modelClass", "writes", "externalWrites"],
+            "properties": {
+              "template": { "type": "string", "minLength": 1 },
+              "modelClass": { "enum": ["economy", "mid", "strongest"] },
+              "writes": { "type": "boolean" },
+              "externalWrites": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "modelPolicy": { "type": "object" },
+    "safety": { "type": "object" },
+    "evidence": { "type": "object" }
+  }
+}

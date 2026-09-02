@@ -1,0 +1,4 @@
+interface:
+  display_name: "DSA Codebase Audit"
+  short_description: "Read-only structural codebase audit"
+  default_prompt: "Use $dsa-codebase-audit to run a complete read-only structural audit of this repository."

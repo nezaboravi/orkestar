@@ -1,0 +1,159 @@
+{
+  "$schema": "./schemas/orchestra.schema.json",
+  "schemaVersion": 1,
+  "runtime": {
+    "primary": "direct-cli",
+    "harness": "auto",
+    "fallbackOrder": ["codex", "claude", "kimi", "opencode"],
+    "optionalWorkspace": "herdr",
+    "desktopRequired": false
+  },
+  "portability": {
+    "excludedSkillPaths": ["omarchy"]
+  },
+  "team": {
+    "name": "development",
+    "entrypoint": "dev-lead",
+    "workflow": [
+      { "phase": "plan", "role": "dev-planner" },
+      { "phase": "build", "role": "dev-builder" },
+      { "phase": "verify", "role": "dev-tester" },
+      { "phase": "prove", "role": "dev-auditor" }
+    ]
+  },
+  "agentFactory": {
+    "enabled": true,
+    "lifecycle": "one-run",
+    "unknownCapabilityPolicy": "fail-closed",
+    "requireExactPermissionEnvelope": true,
+    "requireIndependentProofAfterWrites": true,
+    "profiles": {
+      "project-read": {
+        "template": "explorer",
+        "modelClass": "economy",
+        "writes": false,
+        "externalWrites": false
+      },
+      "project-write": {
+        "template": "dev-builder",
+        "modelClass": "mid",
+        "writes": true,
+        "externalWrites": false
+      },
+      "project-verify": {
+        "template": "verifier",
+        "modelClass": "economy",
+        "writes": false,
+        "externalWrites": false
+      },
+      "taskavel": {
+        "template": "task-manager",
+        "modelClass": "economy",
+        "writes": false,
+        "externalWrites": true
+      },
+      "browser": {
+        "template": "browser-ops",
+        "modelClass": "mid",
+        "writes": false,
+        "externalWrites": true
+      }
+    }
+  },
+  "modelPolicy": {
+    "inventoryAtInstall": true,
+    "runtimeManifestBeforeDispatch": true,
+    "humanConfirmationBeforeFirstDispatch": false,
+    "recordActualTokensAndCost": true,
+    "classes": {
+      "coordination": "mid",
+      "planning": "mid",
+      "implementation": "mid",
+      "testing": "economy",
+      "audit": "strongest"
+    },
+    "adapters": {
+      "codex": {
+        "reasoningEffort": {
+          "classes": {
+            "economy": "low",
+            "mid": "medium",
+            "strongest": "high"
+          },
+          "roles": {
+            "dev-lead": "medium",
+            "dev-planner": "medium",
+            "dev-builder": "medium",
+            "dev-tester": "low",
+            "dev-auditor": "high"
+          }
+        },
+        "classes": {
+          "economy": ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
+          "mid": ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol"],
+          "strongest": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+        },
+        "roles": {
+          "dev-lead": ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol"],
+          "dev-planner": ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol"],
+          "dev-builder": ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol"],
+          "dev-tester": ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
+          "dev-auditor": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
+        }
+      },
+      "claude": {
+        "classes": {
+          "economy": ["haiku", "sonnet", "opus"],
+          "mid": ["sonnet", "haiku", "opus"],
+          "strongest": ["opus", "sonnet", "haiku"]
+        },
+        "roles": {
+          "dev-lead": ["haiku", "sonnet", "opus"],
+          "dev-planner": ["haiku", "sonnet", "opus"],
+          "dev-builder": ["haiku", "sonnet", "opus"],
+          "dev-tester": ["haiku", "sonnet", "opus"],
+          "dev-auditor": ["haiku", "sonnet", "opus"]
+        }
+      },
+      "kimi": {
+        "classes": {
+          "economy": ["configured-default"],
+          "mid": ["configured-default"],
+          "strongest": ["configured-default"]
+        },
+        "roles": {
+          "dev-lead": ["configured-default"],
+          "dev-planner": ["configured-default"],
+          "dev-builder": ["configured-default"],
+          "dev-tester": ["configured-default"],
+          "dev-auditor": ["configured-default"]
+        }
+      },
+      "opencode": {
+        "classes": {
+          "economy": ["opencode-go/kimi-k2.7-code", "opencode-go/deepseek-v4-flash", "openai/gpt-5.6-luna"],
+          "mid": ["opencode-go/kimi-k2.7-code", "openai/gpt-5.6-luna", "openai/gpt-5.6-terra"],
+          "strongest": ["openai/gpt-5.6-sol", "openai/gpt-5.6-terra", "opencode-go/kimi-k2.7-code"]
+        },
+        "roles": {
+          "dev-lead": ["openai/gpt-5.6-luna", "openai/gpt-5.6-terra", "opencode-go/kimi-k2.7-code"],
+          "dev-planner": ["openai/gpt-5.6-terra", "openai/gpt-5.6-luna", "opencode-go/kimi-k2.7-code"],
+          "dev-builder": ["opencode-go/kimi-k2.7-code", "openai/gpt-5.6-luna", "opencode-go/deepseek-v4-flash"],
+          "dev-tester": ["opencode-go/kimi-k2.7-code", "opencode-go/deepseek-v4-flash", "openai/gpt-5.6-luna"],
+          "dev-auditor": ["openai/gpt-5.6-sol", "openai/gpt-5.6-terra", "opencode-go/kimi-k2.7-code"]
+        }
+      }
+    }
+  },
+  "safety": {
+    "safeOperationsRunUnattended": true,
+    "externalWrites": "deny",
+    "destructiveOperations": "deny",
+    "executorCannotApproveOwnWork": true
+  },
+  "evidence": {
+    "requireVerification": true,
+    "requireIndependentAudit": true,
+    "requireHandoff": true
+  }
+}

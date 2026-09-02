@@ -1,0 +1,41 @@
+name: Portable bootstrap
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify shell and JavaScript tests
+        run: |
+          sh -n bootstrap.sh
+          node --test tests/*.test.mjs
+      - name: Exercise project-only bootstrap
+        run: |
+          project="$RUNNER_TEMP/orchestra-proof"
+          mkdir -p "$project"
+          ./bootstrap.sh --project "$project" --project-only --no-launch --structural-only
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify JavaScript tests
+        shell: pwsh
+        run: node --test tests/*.test.mjs
+      - name: Exercise project-only bootstrap
+        shell: pwsh
+        run: |
+          $project = Join-Path $env:RUNNER_TEMP "orchestra-proof"
+          New-Item -ItemType Directory -Force -Path $project | Out-Null
+          ./bootstrap.ps1 -Project $project -ProjectOnly -NoLaunch -StructuralOnly
