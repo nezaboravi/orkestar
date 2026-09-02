@@ -15,7 +15,7 @@ function herdrSessionName(project) {
     .replace(/^-|-$/g, '')
     .slice(0, 16) || 'project';
   const hash = crypto.createHash('sha256').update(identity).digest('hex').slice(0, 8);
-  return `lenka-${slug}-${hash}`;
+  return `lenka3-${slug}-${hash}`;
 }
 
 const invokedFile = process.argv[1] ? fs.realpathSync(process.argv[1]) : null;

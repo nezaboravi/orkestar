@@ -271,6 +271,20 @@ so different projects cannot attach to the same persisted panes. Herdr does
 not choose the model, grant permissions, or perform orchestration; the selected
 CLI adapter still does that work. Desktop clients remain optional.
 
+Orkestar leaves Herdr's interactive shell configuration untouched. It opens the
+project session, then starts Lenka once through Herdr's native agent command.
+If an adapter cannot start, the pane remains a usable shell and the diagnostic
+is recorded under `~/.local/share/agent-orchestra/` instead of entering a
+terminal restart loop.
+
+For a Codex launch, Orkestar trusts only the exact active project for that
+invocation. This removes Codex's first-run confirmation without changing the
+user's global Codex trust settings.
+
+Codex reads Lenka's installed global instructions and the active project's own
+`AGENTS.md` through its normal instruction discovery. Orkestar does not paste a
+second copy of the full persona into the terminal command line.
+
 The user's explicit instruction to start work authorizes normal agent dispatch.
 The orchestra offers one compact plan choice, then continues without routine
 approval prompts. A non-destructive external write named in the request, such

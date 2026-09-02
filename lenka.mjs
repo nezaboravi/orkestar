@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import readline from 'node:readline/promises';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { herdrSessionName } from './session-name.mjs';
 
@@ -185,14 +185,27 @@ function launchInstalledRuntime(runtime, options) {
   if (!herdr || process.platform === 'win32') return null;
   const runtimeDirectory = path.join(homeDirectory(), '.local', 'share', 'agent-orchestra');
   fs.mkdirSync(runtimeDirectory, { recursive: true });
-  const herdrConfig = path.join(runtimeDirectory, 'herdr.toml');
-  fs.writeFileSync(herdrConfig, `[terminal]\ndefault_shell = ${JSON.stringify(path.join(repoRoot, 'harness-launcher.mjs'))}\nshell_mode = "non_login"\nnew_cwd = "current"\n`);
   const session = herdrSessionName(options.project);
   console.log(`Workspace: Herdr (${session})`);
-  return run(herdr, ['--session', session], {
+  const logFile = path.join(runtimeDirectory, `herdr-${session}.log`);
+  const starter = spawn(process.execPath, [
+    path.join(repoRoot, 'herdr-starter.mjs'),
+    '--herdr', herdr,
+    '--session', session,
+    '--harness', runtime.harness,
+    '--binary', runtime.binary,
+    '--project', options.project,
+    '--model', runtime.manifest.primary.model,
+    '--reasoning', runtime.manifest.primary.reasoningEffort || '',
+    '--log', logFile,
+  ], {
     cwd: options.project,
-    env: { ...env, HERDR_CONFIG_PATH: herdrConfig },
+    env: { ...process.env, HERDR_SESSION: session },
+    detached: true,
+    stdio: 'ignore',
   });
+  starter.unref();
+  return run(herdr, ['--session', session], { cwd: options.project, env });
 }
 
 async function up(options) {

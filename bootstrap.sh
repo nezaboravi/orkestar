@@ -253,9 +253,13 @@ if [ "$USE_HERDR" -eq 1 ]; then
   session_name=$(node "$REPO_DIR/session-name.mjs" "$launch_dir")
   printf 'Herdr session: %s\n' "$session_name"
   step "Opening the selected CLI inside the project Herdr session"
-  herdr_config="$RUNTIME_DIR/herdr.toml"
-  node -e 'const fs = require("node:fs"); const [file, shell] = process.argv.slice(1); fs.writeFileSync(file, `[terminal]\ndefault_shell = ${JSON.stringify(shell)}\nshell_mode = "non_login"\nnew_cwd = "current"\n`);' "$herdr_config" "$REPO_DIR/harness-launcher.mjs"
-  export HERDR_CONFIG_PATH="$herdr_config"
+  starter_log="$RUNTIME_DIR/herdr-$session_name.log"
+  HERDR_SESSION="$session_name" node "$REPO_DIR/herdr-starter.mjs" \
+    --herdr "$(command -v herdr)" --session "$session_name" \
+    --harness "$SELECTED_HARNESS" --binary "$harness_binary" \
+    --project "$launch_dir" --model "$primary_model" \
+    --reasoning "$reasoning_effort" --log "$starter_log" \
+    >/dev/null 2>&1 &
   exec herdr --session "$session_name"
 fi
 step "Opening Lenka directly in $SELECTED_HARNESS"

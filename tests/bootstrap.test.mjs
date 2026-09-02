@@ -87,12 +87,11 @@ test('Herdr is the default project-scoped workspace with a direct bypass', () =>
   assert.match(windows, /--session \$SessionName/);
   assert.doesNotMatch(unix, /herdr --session agent-orchestra/);
   assert.doesNotMatch(windows, /--session agent-orchestra/);
-  assert.match(windows, /lenka-harness\.cmd/);
-  assert.match(windows, /harness-launcher\.mjs/);
+  assert.match(windows, /herdr-starter\.mjs/);
   assert.match(windows, /runtime\\opencode\.json/);
-  assert.match(unix, /harness-launcher\.mjs/);
-  assert.match(unix, /default_shell/);
-  assert.match(windows, /default_shell/);
+  assert.match(unix, /herdr-starter\.mjs/);
+  assert.doesNotMatch(unix, /default_shell/);
+  assert.doesNotMatch(windows, /default_shell/);
 });
 
 test('Windows retains a direct OpenCode escape path', () => {

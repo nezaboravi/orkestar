@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -8,9 +9,13 @@ test('launcher pins the verified coordination model in Codex', () => {
   const args = launcherArgs('codex', 'gpt-5.6-terra', process.cwd(), 'medium');
   assert.deepEqual(args.slice(0, 2), ['--model', 'gpt-5.6-terra']);
   const configs = args.flatMap((arg, index) => arg === '--config' ? [args[index + 1]] : []);
-  assert.match(configs[0], /^developer_instructions=.*Lenka — the orchestrator/s);
-  assert.equal(configs[1], 'model_reasoning_effort="medium"');
-  assert.deepEqual(args.slice(-5), ['--enable', 'multi_agent', '--sandbox', 'workspace-write', '--approve-for-me']);
+  assert.deepEqual(configs, [
+    `projects={${JSON.stringify(realpathSync(process.cwd()))}={trust_level="trusted"}}`,
+    'model_reasoning_effort="medium"',
+  ]);
+  assert.deepEqual(args.slice(-3), ['--enable', 'multi_agent', '--approve-for-me']);
+  assert.equal(args.includes('--sandbox'), false);
+  assert.equal(args.some((arg) => arg.startsWith('developer_instructions=')), false);
   assert.equal(args.includes('--agent'), false);
 });
 

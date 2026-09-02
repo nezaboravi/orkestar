@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -11,10 +11,10 @@ const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 function launcherArgs(harness, model, cwd = process.cwd(), reasoningEffort = null) {
   const args = ['--model', model];
   if (harness === 'codex') {
-    const persona = fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
-    args.push('--config', `developer_instructions=${JSON.stringify(persona)}`);
+    const project = realpathSync(cwd);
+    args.push('--config', `projects={${JSON.stringify(project)}={trust_level="trusted"}}`);
     if (reasoningEffort) args.push('--config', `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`);
-    args.push('--enable', 'multi_agent', '--sandbox', 'workspace-write', '--approve-for-me');
+    args.push('--enable', 'multi_agent', '--approve-for-me');
   } else if (harness === 'claude') {
     args.push('--agent', 'lenka', '--permission-mode', 'auto');
     if (reasoningEffort) args.push('--effort', reasoningEffort);

@@ -222,21 +222,20 @@ if ($HerdrEnabled) {
     }
     Write-Host "Herdr session: $SessionName"
     Write-Step "Opening Lenka inside the project Herdr session"
-    $HerdrConfig = Join-Path $RuntimeDir "herdr.toml"
-    $HarnessWrapper = Join-Path $RuntimeDir "lenka-harness.cmd"
-    $LauncherScript = Join-Path $RepoDir "harness-launcher.mjs"
-    $WrapperContent = "@echo off`r`n`"$Node`" `"$LauncherScript`" %*`r`n"
-    $Utf8WithoutBom = [System.Text.UTF8Encoding]::new($false)
-    [System.IO.File]::WriteAllText($HarnessWrapper, $WrapperContent, $Utf8WithoutBom)
-    $TomlHarness = $HarnessWrapper.Replace("\", "\\").Replace('"', '\"')
-    $HerdrConfigContent = @"
-[terminal]
-default_shell = "$TomlHarness"
-shell_mode = "non_login"
-new_cwd = "current"
-"@
-    [System.IO.File]::WriteAllText($HerdrConfig, $HerdrConfigContent, $Utf8WithoutBom)
-    $env:HERDR_CONFIG_PATH = $HerdrConfig
+    $StarterLog = Join-Path $RuntimeDir "herdr-$SessionName.log"
+    $StarterArgs = @(
+        (Join-Path $RepoDir "herdr-starter.mjs"),
+        "--herdr", $HerdrExe,
+        "--session", $SessionName,
+        "--harness", "opencode",
+        "--binary", $OpenCodeExe,
+        "--project", $LaunchDir,
+        "--model", $OpenCodePrimaryModel,
+        "--reasoning", "",
+        "--log", $StarterLog
+    )
+    $env:HERDR_SESSION = $SessionName
+    Start-Process -FilePath $Node -ArgumentList $StarterArgs -WindowStyle Hidden
     & $HerdrExe --session $SessionName
 } else {
     Write-Step "Opening Lenka directly in OpenCode"

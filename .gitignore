@@ -9,3 +9,6 @@
 
 # Machine-owned Omarchy skill; never publish an absolute host symlink.
 /skills/omarchy
+
+# Local package produced by `npm pack` during launcher verification.
+/*.tgz
