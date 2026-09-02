@@ -63,7 +63,7 @@ cd orkestar
 ./bootstrap.sh
 ```
 
-### Linux, including Omarchy
+### Linux, including Arch and Omarchy
 
 ```sh
 git clone https://github.com/nezaboravi/orkestar.git
@@ -139,6 +139,12 @@ Native Windows currently supports `lenka up` through OpenCode. Codex and
 Claude selection through the Lenka command is implemented for macOS and Linux;
 their complete orchestration behavior proof remains pending. Windows
 multi-harness selection remains a later portability phase.
+
+The automated Linux matrix covers Ubuntu and a clean Arch Linux container.
+Arch is the closest reproducible base for Omarchy, but it is not a substitute
+for the physical Omarchy acceptance run. The portable Node and Herdr binaries
+target mainstream glibc-based Linux distributions. Alpine and other musl-only
+systems are not yet claimed as supported.
 
 The one-command bootstrap defaults to the recoverable `backup` conflict policy:
 existing differing files are preserved in a timestamped recovery directory

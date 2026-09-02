@@ -9,7 +9,7 @@ Homebrew, and a developer's existing shell configuration are not dependencies.
 | Platform | Entrypoint | Supported architectures | Herdr | Harness |
 |---|---|---|---|---|
 | macOS | `./bootstrap.sh` | Apple silicon, Intel | default workspace; `--direct` bypass | Codex / Claude / Kimi / OpenCode auto-selection |
-| Linux | `./bootstrap.sh` | aarch64, x86_64 | default workspace; `--direct` bypass | Codex / Claude / Kimi / OpenCode auto-selection |
+| Linux (glibc, including Arch/Omarchy) | `./bootstrap.sh` | aarch64, x86_64 | default workspace; `--direct` bypass | Codex / Claude / Kimi / OpenCode auto-selection |
 | Windows | `.\bootstrap.ps1` | x86_64; ARM64 through x86_64 emulation | default ConPTY workspace; `-Direct` bypass | OpenCode (current bootstrap) |
 
 Both entrypoints install runtime files below the selected user's home, prepend
@@ -19,6 +19,11 @@ Code, Kimi Code, or OpenCode only after a live response. `--direct` bypasses
 the project-specific persistent session without changing the harness. Unix does not edit
 `.zshrc`, `.bashrc`, or profile files. Windows bootstrap also keeps its runtime
 inside the orchestra directory instead of depending on Chocolatey or Scoop.
+
+CI exercises Ubuntu and a clean Arch Linux container as distinct Linux-family
+proofs. Arch is the reproducible compatibility base for Omarchy; the final
+Omarchy claim still requires a run on the user's physical Omarchy machine.
+Alpine and other musl-only distributions are outside the current support claim.
 
 ## Verification levels
 
@@ -37,7 +42,7 @@ unannounced free model.
 ## Automated matrix
 
 `.github/workflows/portable-bootstrap.yml` runs the project-only bootstrap on
-GitHub-hosted macOS, Ubuntu, and Windows machines. It uses structural mode
+GitHub-hosted macOS, Ubuntu, Windows, and a clean Arch Linux container. It uses structural mode
 because CI does not receive private provider credentials. The public matrix is
 available in [GitHub Actions](https://github.com/nezaboravi/orkestar/actions/workflows/portable-bootstrap.yml).
 Authenticated physical-machine proofs remain a separate, higher-level

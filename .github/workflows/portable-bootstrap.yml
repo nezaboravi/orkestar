@@ -26,6 +26,21 @@ jobs:
           mkdir -p "$project"
           ./bootstrap.sh --project "$project" --project-only --no-launch --structural-only
 
+  arch-linux:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Install clean Arch prerequisites
+        run: pacman -Syu --noconfirm git nodejs npm curl tar openssl
+      - uses: actions/checkout@v5
+      - name: Verify JavaScript tests
+        run: node --test tests/*.test.mjs
+      - name: Exercise project-only bootstrap
+        run: |
+          project="$RUNNER_TEMP/orchestra-proof"
+          mkdir -p "$project"
+          ./bootstrap.sh --project "$project" --project-only --no-launch --structural-only
+
   windows:
     runs-on: windows-latest
     steps:

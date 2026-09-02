@@ -6,6 +6,7 @@ import test from 'node:test';
 const repoRoot = path.resolve(import.meta.dirname, '..');
 const unix = fs.readFileSync(path.join(repoRoot, 'bootstrap.sh'), 'utf8').replace(/\r\n/g, '\n');
 const windows = fs.readFileSync(path.join(repoRoot, 'bootstrap.ps1'), 'utf8').replace(/\r\n/g, '\n');
+const workflow = fs.readFileSync(path.join(repoRoot, '.github', 'workflows', 'portable-bootstrap.yml'), 'utf8').replace(/\r\n/g, '\n');
 
 test('Unix bootstrap is strict and supports macOS and Linux architectures', () => {
   assert.match(unix, /^#!\/bin\/sh\nset -eu/m);
@@ -13,6 +14,12 @@ test('Unix bootstrap is strict and supports macOS and Linux architectures', () =
   assert.match(unix, /Linux\) platform="linux"/);
   assert.match(unix, /arm64\|aarch64/);
   assert.match(unix, /x86_64\|amd64/);
+});
+
+test('CI proves both Ubuntu and the Arch base used by Omarchy', () => {
+  assert.match(workflow, /os: \[macos-latest, ubuntu-latest\]/);
+  assert.match(workflow, /container: archlinux:latest/);
+  assert.match(workflow, /pacman -Syu --noconfirm git nodejs npm curl tar openssl/);
 });
 
 test('both bootstraps verify the pinned Node archive checksum', () => {
