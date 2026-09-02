@@ -12,6 +12,7 @@ const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 const sourceAgents = path.join(repoRoot, 'agents');
 const sourceTeams = path.join(repoRoot, 'teams');
 const sourceSkills = path.join(repoRoot, 'skills');
+const sourceOpenCodeTools = path.join(repoRoot, 'adapters', 'opencode', 'tools');
 const persona = fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
 const orchestraConfig = JSON.parse(fs.readFileSync(path.join(repoRoot, 'orchestra.json'), 'utf8'));
 const isWindows = process.platform === 'win32';
@@ -679,6 +680,15 @@ function buildPlan(options) {
         content: runtimeManifest(tool, resolvedFactoryModels),
         kind: `${tool} global runtime manifest`,
       });
+      if (tool === 'opencode') {
+        for (const name of fs.readdirSync(sourceOpenCodeTools).sort()) {
+          operations.push({
+            target: path.join(options.home, '.config', 'opencode', 'tools', name),
+            content: fs.readFileSync(path.join(sourceOpenCodeTools, name)),
+            kind: 'opencode orchestra tool',
+          });
+        }
+      }
     }
     if (options.project) {
       const projectAgents = path.join(options.project, ...tools[tool].projectAgentPath);
@@ -693,6 +703,15 @@ function buildPlan(options) {
         content: runtimeManifest(tool, resolvedFactoryModels),
         kind: `${tool} runtime manifest`,
       });
+      if (tool === 'opencode') {
+        for (const name of fs.readdirSync(sourceOpenCodeTools).sort()) {
+          operations.push({
+            target: path.join(options.project, '.opencode', 'tools', name),
+            content: fs.readFileSync(path.join(sourceOpenCodeTools, name)),
+            kind: 'opencode project orchestra tool',
+          });
+        }
+      }
     }
   }
   if (!options.projectOnly) {

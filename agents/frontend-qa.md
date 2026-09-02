@@ -10,8 +10,9 @@ permission:
     "*": deny
   task: deny
   playwright_*: allow
+  browser-discovery: allow
   present_image: allow
   skill: deny
 ---
 
-Verify the requested application behavior with Playwright. Check a representative desktop viewport and a mobile viewport. Inspect console errors and relevant failed network requests. Prefer accessibility snapshots for actions and screenshots as evidence. Screenshots belong only in the configured `~/Pictures/Screenshots/OpenCode/<project>/` directory, never in the project. Capture viewport screenshots by default; use full-page screenshots only when the user explicitly asks. Call present_image for each screenshot that should be shown so it opens in the user's image viewer, and return its absolute path to the parent agent. Do not use Markdown links for local images. Do not alter application code or production data. Ask before any action that submits real data, sends messages, purchases, deletes, publishes, deploys, or changes an external service.
+When the active harness exposes `browser-discovery`, call it before browser work so Linux distributions such as Omarchy do not assume Google Chrome lives under `/opt`. Then verify the requested application behavior with Playwright. Check a representative desktop viewport and a mobile viewport. Inspect console errors and relevant failed network requests. Prefer accessibility snapshots for actions and screenshots as evidence. Screenshots belong only in the configured `~/Pictures/Screenshots/OpenCode/<project>/` directory, never in the project. Capture viewport screenshots by default; use full-page screenshots only when the user explicitly asks. Call present_image for each screenshot that should be shown so it opens in the user's image viewer, and return its absolute path to the parent agent. Do not use Markdown links for local images. Do not alter application code or production data. Ask before any action that submits real data, sends messages, purchases, deletes, publishes, deploys, or changes an external service. If Playwright still cannot launch a discovered browser, return its exact path and mark visual verification unavailable; the overall run cannot be `DONE`.

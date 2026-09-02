@@ -234,6 +234,35 @@ agents, and shared skills untouched. If the project already has `AGENTS.md`
 (for example, Laravel Boost guidelines), those instructions are preserved.
 Its ignored recovery manifests stay inside `.agent-orchestra/` in that project.
 
+## See what the orchestra actually did
+
+For every non-trivial OpenCode run, Lenka must finish by writing an audit from
+OpenCode's own session records. The final answer and the saved audit distinguish:
+
+- `DONE` — the requested outcome and every promised verification succeeded
+- `PARTIAL` — useful work landed, but a promised check failed, was skipped, or was unavailable
+- `FAILED` — the requested outcome was not delivered
+
+The audit lists the root conductor and every child session with its actual
+agent name, provider/model, token totals, recorded cost, verification evidence,
+and blockers. Missing values are never estimated.
+
+Read the most recent audit at any time:
+
+```sh
+lenka report last
+```
+
+The in-session report is captured immediately before Lenka's final answer.
+Running `lenka report last` after the session refreshes the same session tree,
+so it also includes the final answer's recorded usage.
+
+Run audits live under `.agent-orchestra/runs/` and are ignored by Git. OpenCode
+is the first adapter with an exact per-agent collector because its local session
+store exposes the required lineage and usage fields. Codex, Claude Code, and
+Kimi Code must say `unavailable` for fields their current adapter cannot prove;
+they must not borrow OpenCode numbers or display zero as if it meant no usage.
+
 Codex and Claude Code have authenticated adapter proofs; their complete
 PLAN → BUILD → VERIFY → PROVE behavior proofs are still pending. OpenCode is
 the original adapter. Kimi Code has an authenticated direct-adapter proof; its

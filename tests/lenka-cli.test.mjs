@@ -15,7 +15,29 @@ test('Lenka CLI exposes the portable orchestration commands', () => {
   assert.match(result.stdout, /--herdr/);
   assert.match(result.stdout, /--direct/);
   assert.match(result.stdout, /lenka status/);
+  assert.match(result.stdout, /lenka report last/);
   assert.match(result.stdout, /lenka doctor/);
+});
+
+test('Lenka report prints the persisted exact run audit', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'lenka-report-'));
+  const directory = path.join(project, '.agent-orchestra', 'runs');
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, 'latest.json'), JSON.stringify({
+    harness: 'opencode',
+    sessionId: 'ses_test',
+    status: 'PARTIAL',
+    agents: [{ agent: 'lenka', model: 'provider/model', tokens: { total: 42 }, cost: 0.001 }],
+    totals: { tokens: 42, cost: 0.001 },
+    verification: ['Tests passed'],
+    blockers: ['Visual QA unavailable'],
+  }));
+
+  const result = spawnSync(process.execPath, [cli, 'report', 'last', '--project', project], { encoding: 'utf8' });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /Orkestar run PARTIAL/);
+  assert.match(result.stdout, /lenka: provider\/model — 42 tokens — \$0\.001000/);
+  assert.match(result.stdout, /Visual QA unavailable/);
 });
 
 test('Lenka status reports the exact primary coordination route', () => {

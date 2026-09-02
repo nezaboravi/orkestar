@@ -485,6 +485,24 @@ test('project plan installs one ignored runtime manifest per selected harness', 
   assert.equal(JSON.parse(codex.content).primary.model, null);
 });
 
+test('OpenCode installation includes the exact run audit tool', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-orchestra-audit-tool-'));
+  const project = path.join(root, 'project');
+  fs.mkdirSync(project);
+  const plan = buildPlan({
+    selectedTools: ['opencode'],
+    home: path.join(root, 'home'),
+    project,
+    projectOnly: true,
+    resolvedModelsByTool: { opencode: {} },
+    resolvedFactoryModelsByTool: { opencode: {} },
+  });
+  const operation = plan.operations.find((item) => item.target === path.join(project, '.opencode', 'tools', 'orchestra-report.ts'));
+  assert.ok(operation);
+  assert.match(operation.content.toString(), /Exact OpenCode session database values; no estimates/);
+  assert.ok(plan.operations.some((item) => item.target === path.join(project, '.opencode', 'tools', 'browser-discovery.ts')));
+});
+
 test('doctor does not call a CLI-only clean room ready without models', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-orchestra-no-models-'));
   assert.equal(silently(() => main(['doctor', '--home', home])), 1);

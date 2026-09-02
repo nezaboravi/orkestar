@@ -73,3 +73,12 @@ This proves clean structural installation on the hosted runners. It does not
 claim authenticated model routing or real project behavior on Vladimir's
 physical Linux and Windows computers; those proofs still need their local
 credentials and projects.
+
+## Browser discovery
+
+The OpenCode adapter installs a read-only `browser-discovery` tool. It checks
+`PATH` and standard macOS and Windows application locations for Chrome,
+Chromium, Brave, and Edge. Frontend QA must use that evidence before assuming
+a Google Chrome path. A discovered executable does not by itself prove that a
+Playwright MCP server can launch it; if launch still fails, the run is
+`PARTIAL` and the exact discovered path and failure remain visible.

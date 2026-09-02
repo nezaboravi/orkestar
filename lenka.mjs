@@ -18,6 +18,7 @@ function usage() {
 Usage:
   lenka up [auto|codex|claude|kimi|opencode] [options]
   lenka status [--project PATH]
+  lenka report last [--project PATH]
   lenka doctor [codex|claude|kimi|opencode] [--project PATH]
 
 Options:
@@ -37,6 +38,7 @@ Examples:
   lenka up codex --direct
   lenka up --ask
   lenka status
+  lenka report last
 `);
 }
 
@@ -51,6 +53,8 @@ function parse(input) {
   let herdr = true;
   let noLaunch = false;
   let conflict = 'backup';
+  let reportTarget = null;
+  if (command === 'report' && args[0] && !args[0].startsWith('-')) reportTarget = args.shift();
   while (args.length) {
     const arg = args.shift();
     if (harnesses.includes(arg) && !harness) harness = arg;
@@ -68,7 +72,7 @@ function parse(input) {
     } else if (arg === '--help' || arg === '-h') return { command: 'help' };
     else throw new Error(`unknown argument: ${arg}`);
   }
-  return { command, harness, project, ask, herdr, noLaunch, conflict };
+  return { command, harness, project, ask, herdr, noLaunch, conflict, reportTarget };
 }
 
 function homeDirectory() {
@@ -270,6 +274,105 @@ function doctor(options) {
   return run(process.execPath, [path.join(repoRoot, 'orchestra.mjs'), 'doctor', '--tool', harness, '--project', options.project, '--project-only', '--installed']);
 }
 
+function sqlString(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function refreshOpenCodeAudit(audit, project) {
+  const binary = executable('opencode');
+  if (!binary || !audit.sessionId) return audit;
+  const query = `WITH RECURSIVE tree AS (
+    SELECT id, parent_id, agent, title, model, cost, tokens_input, tokens_output,
+           tokens_reasoning, tokens_cache_read, tokens_cache_write, time_created
+    FROM session WHERE id = ${sqlString(audit.sessionId)}
+    UNION ALL
+    SELECT s.id, s.parent_id, s.agent, s.title, s.model, s.cost, s.tokens_input,
+           s.tokens_output, s.tokens_reasoning, s.tokens_cache_read, s.tokens_cache_write, s.time_created
+    FROM session s JOIN tree t ON s.parent_id = t.id
+  ) SELECT * FROM tree ORDER BY time_created ASC`;
+  const result = spawnSync(binary, ['db', query, '--format', 'json'], { cwd: project, encoding: 'utf8' });
+  if (result.status !== 0) return audit;
+  let rows;
+  try {
+    rows = JSON.parse(result.stdout);
+  } catch {
+    return audit;
+  }
+  if (!Array.isArray(rows) || !rows.length) return audit;
+  const agents = rows.map((row, index) => {
+    let model = row.model || 'unavailable';
+    try {
+      const parsed = JSON.parse(model);
+      model = parsed.providerID && (parsed.id || parsed.modelID)
+        ? `${parsed.providerID}/${parsed.id || parsed.modelID}`
+        : (parsed.id || parsed.modelID || model);
+    } catch {
+      // A plain model string is already usable.
+    }
+    const tokens = {
+      input: Number(row.tokens_input || 0),
+      output: Number(row.tokens_output || 0),
+      reasoning: Number(row.tokens_reasoning || 0),
+      cacheRead: Number(row.tokens_cache_read || 0),
+      cacheWrite: Number(row.tokens_cache_write || 0),
+    };
+    return {
+      sessionId: row.id,
+      parentSessionId: row.parent_id,
+      agent: row.agent || (index === 0 ? 'lenka' : 'unavailable'),
+      task: row.title || 'unavailable',
+      model,
+      tokens: { ...tokens, total: tokens.input + tokens.output + tokens.reasoning },
+      cost: Number(row.cost || 0),
+    };
+  });
+  return {
+    ...audit,
+    agents,
+    totals: {
+      tokens: agents.reduce((sum, agent) => sum + agent.tokens.total, 0),
+      cost: agents.reduce((sum, agent) => sum + agent.cost, 0),
+    },
+    refreshedAt: new Date().toISOString(),
+  };
+}
+
+function report(options) {
+  if (options.reportTarget && options.reportTarget !== 'last') {
+    throw new Error('report currently supports only: lenka report last');
+  }
+  const reportPath = path.join(options.project, '.agent-orchestra', 'runs', 'latest.json');
+  if (!fs.existsSync(reportPath)) {
+    console.log(`No orchestra audit report exists for ${options.project}`);
+    console.log('Run a non-trivial task with Lenka, then use: lenka report last');
+    return 1;
+  }
+  let audit;
+  try {
+    audit = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+  } catch {
+    throw new Error(`invalid orchestra audit report: ${reportPath}`);
+  }
+  if (audit.harness === 'opencode') audit = refreshOpenCodeAudit(audit, options.project);
+  console.log(`\nOrkestar run ${audit.status}`);
+  console.log(`Harness: ${audit.harness}`);
+  console.log(`Session: ${audit.sessionId}`);
+  console.log(`Agents: ${audit.agents.length}`);
+  for (const agent of audit.agents) {
+    console.log(`- ${agent.agent}: ${agent.model} — ${agent.tokens.total} tokens — $${agent.cost.toFixed(6)}`);
+  }
+  console.log(`Total: ${audit.totals.tokens} tokens — $${audit.totals.cost.toFixed(6)}`);
+  if (audit.verification.length) {
+    console.log('Verification:');
+    for (const item of audit.verification) console.log(`- ${item}`);
+  }
+  if (audit.blockers.length) {
+    console.log('Blockers:');
+    for (const item of audit.blockers) console.log(`- ${item}`);
+  }
+  return audit.status === 'FAILED' ? 1 : 0;
+}
+
 async function main(argv = process.argv.slice(2)) {
   const options = parse(argv);
   if (options.command === 'help') {
@@ -278,6 +381,7 @@ async function main(argv = process.argv.slice(2)) {
   }
   if (options.command === 'up') return up(options);
   if (options.command === 'status') return status(options);
+  if (options.command === 'report') return report(options);
   if (options.command === 'doctor') return doctor(options);
   throw new Error(`unknown command: ${options.command}`);
 }
