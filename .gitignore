@@ -6,6 +6,7 @@
 .kimi/
 .gemini/
 .aider/
+.agent-orchestra/
 
 # Machine-owned Omarchy skill; never publish an absolute host symlink.
 /skills/omarchy
