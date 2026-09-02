@@ -37,6 +37,19 @@ test('bootstraps install the orchestra while keeping Herdr optional', () => {
   assert.match(windows, /opencode-ai/);
 });
 
+test('one-command bootstraps recoverably back up conflicts by default', () => {
+  assert.match(unix, /CONFLICT="backup"/);
+  assert.match(unix, /default: backup/);
+  assert.match(windows, /\[string\]\$Conflict = "backup"/);
+});
+
+test('automatic harness fallback happens only for an unavailable model route', () => {
+  assert.match(unix, /case "\$install_status" in/);
+  assert.match(unix, /3\)[\s\S]*trying the next configured harness/);
+  assert.match(unix, /2\) fail "installation conflicts stopped setup/);
+  assert.match(unix, /\*\) fail "\$candidate setup failed before model fallback/);
+});
+
 test('both bootstraps install Lenka from a package archive instead of linking the checkout', () => {
   for (const source of [unix, windows]) {
     assert.match(source, /npm(?:\.cmd)? pack --silent --pack-destination/);

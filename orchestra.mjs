@@ -16,6 +16,8 @@ const persona = fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
 const orchestraConfig = JSON.parse(fs.readFileSync(path.join(repoRoot, 'orchestra.json'), 'utf8'));
 const isWindows = process.platform === 'win32';
 
+class HarnessUnavailableError extends Error {}
+
 const tools = {
   opencode: { command: 'opencode', stable: true, agentPath: ['.config', 'opencode', 'agents'], projectAgentPath: ['.opencode', 'agents'] },
   claude: { command: 'claude', stable: true, agentPath: ['.claude', 'agents'], projectAgentPath: ['.claude', 'agents'] },
@@ -920,9 +922,9 @@ function main(argv = process.argv.slice(2)) {
       options.resolvedModelsByTool[tool] = resolution.routes;
       options.resolvedFactoryModelsByTool[tool] = factoryResolution.routes;
       const missing = Object.entries(resolution.routes).filter(([, model]) => !model).map(([role]) => role);
-      if (missing.length) throw new Error(`No executable ${tool} model candidate for: ${missing.join(', ')}`);
+      if (missing.length) throw new HarnessUnavailableError(`No executable ${tool} model candidate for: ${missing.join(', ')}`);
       const missingClasses = Object.entries(factoryResolution.routes).filter(([, model]) => !model).map(([modelClass]) => modelClass);
-      if (missingClasses.length) throw new Error(`No executable ${tool} dynamic model candidate for: ${missingClasses.join(', ')}`);
+      if (missingClasses.length) throw new HarnessUnavailableError(`No executable ${tool} dynamic model candidate for: ${missingClasses.join(', ')}`);
     }
   }
   const plan = buildPlan(options);
@@ -938,7 +940,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     process.exitCode = main();
   } catch (error) {
     console.error(`ERROR: ${error.message}`);
-    process.exitCode = 1;
+    process.exitCode = error instanceof HarnessUnavailableError ? 3 : 1;
   }
 }
 

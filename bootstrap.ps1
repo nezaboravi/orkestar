@@ -4,7 +4,7 @@ param(
     [string]$Project,
     [switch]$ProjectOnly,
     [ValidateSet("fail", "skip", "backup")]
-    [string]$Conflict = "fail",
+    [string]$Conflict = "backup",
     [switch]$UseHerdr,
     [switch]$NoLaunch,
     [switch]$StructuralOnly

@@ -134,10 +134,12 @@ Claude selection through the Lenka command is implemented for macOS and Linux;
 their complete orchestration behavior proof remains pending. Windows
 multi-harness selection remains a later portability phase.
 
-The first command is intentionally safe on an already configured machine:
-conflicting files stop the transaction before any write. Pass
-`--conflict backup` on macOS/Linux or `-Conflict backup` on Windows only when
-you explicitly want the old files preserved and replaced.
+The one-command bootstrap defaults to the recoverable `backup` conflict policy:
+existing differing files are preserved in a timestamped recovery directory
+before Orkestar replaces them. Use `--conflict fail` on macOS/Linux or
+`-Conflict fail` on Windows when you want any difference to stop installation
+without a write. The lower-level `orchestra.mjs install` command also defaults
+to `fail` for manual inspection and controlled integration.
 
 Credentials are never copied between tools. In automatic mode the Unix
 bootstrap tries Codex with an existing ChatGPT sign-in, then Claude Code with

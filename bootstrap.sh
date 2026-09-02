@@ -12,7 +12,7 @@ PROJECT_ONLY=0
 NO_LAUNCH=0
 USE_HERDR=0
 STRUCTURAL_ONLY=0
-CONFLICT="fail"
+CONFLICT="backup"
 HARNESS="auto"
 
 usage() {
@@ -25,7 +25,7 @@ Options:
   --home PATH          Override the target home (clean-room testing)
   --project PATH       Install project-local agents into PATH
   --project-only       Leave global configuration untouched (requires --project)
-  --conflict POLICY    fail, skip, or backup (default: fail)
+  --conflict POLICY    fail, skip, or backup (default: backup)
   --harness NAME       auto, codex, claude, kimi, or opencode (default: auto)
   --herdr              Open the selected CLI inside a project Herdr session
   --no-launch          Verify setup without opening the selected CLI
@@ -191,12 +191,21 @@ for candidate in $CANDIDATES; do
   if [ -n "$PROJECT" ]; then set -- "$@" --project "$PROJECT"; fi
   if [ "$PROJECT_ONLY" -eq 1 ]; then set -- "$@" --project-only; fi
   if [ "$STRUCTURAL_ONLY" -eq 1 ]; then set -- "$@" --structural; fi
+  install_status=0
   if node "$REPO_DIR/orchestra.mjs" "$@"; then
     SELECTED_HARNESS="$candidate"
     break
+  else
+    install_status=$?
   fi
-  [ "$HARNESS" = "auto" ] || fail "$candidate is installed but has no executable model route"
-  printf 'WARN: %s was not executable; trying the next configured harness.\n' "$candidate" >&2
+  case "$install_status" in
+    3)
+      [ "$HARNESS" = "auto" ] || fail "$candidate is installed but has no executable model route"
+      printf 'WARN: %s has no executable model route; trying the next configured harness.\n' "$candidate" >&2
+      ;;
+    2) fail "installation conflicts stopped setup; use --conflict backup or --conflict skip" ;;
+    *) fail "$candidate setup failed before model fallback; see the error above" ;;
+  esac
 done
 
 if [ -z "$SELECTED_HARNESS" ]; then
