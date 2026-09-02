@@ -40,6 +40,7 @@ Options:
   --project-only         Install only into --project; leave home untouched
   --conflict <policy>    fail, skip, or backup (default: fail)
   --dry-run              Show the complete plan without writing
+  --quiet                Print a compact install summary
   --installed            With doctor, require every managed file to match
   --structural           With doctor, verify files/tools without provider models
   --experimental         Enable unverified Claude/Codex/Cursor adapters
@@ -60,6 +61,7 @@ function parseArgs(argv) {
     projectOnly: false,
     conflict: 'fail',
     dryRun: false,
+    quiet: false,
     installed: false,
     structural: false,
     experimental: false,
@@ -73,6 +75,7 @@ function parseArgs(argv) {
     const arg = input.shift();
     if (arg === '--help' || arg === '-h') usage();
     if (arg === '--dry-run') options.dryRun = true;
+    else if (arg === '--quiet') options.quiet = true;
     else if (arg === '--installed') options.installed = true;
     else if (arg === '--structural') options.structural = true;
     else if (arg === '--experimental') options.experimental = true;
@@ -820,7 +823,7 @@ function printPlan(items, plan, options) {
   items.forEach((item) => counts[item.action] = (counts[item.action] || 0) + 1);
   console.log(`Files: ${Object.entries(counts).map(([key, value]) => `${key}=${value}`).join(', ')}`);
   plan.warnings.forEach((warning) => console.log(`WARNING: ${warning}`));
-  items.forEach((item) => console.log(`  ${item.action.padEnd(9)} ${item.target}`));
+  if (!options.quiet) items.forEach((item) => console.log(`  ${item.action.padEnd(9)} ${item.target}`));
 }
 
 function doctor(options) {
@@ -888,13 +891,15 @@ function doctor(options) {
     if (skills.skipped.length) skills.skipped.forEach((link) => console.log(`WARN non-portable source omitted — ${repoLabel(link.path)} -> ${link.target}`));
     else console.log('PASS skill sources are portable');
   }
-  const planned = buildPlan(options);
-  const installationState = classify(planned, 'skip');
-  const protectedCount = installationState.filter((item) => item.action === 'protected-symlink').length;
-  const installed = installationState.filter((item) => item.action === 'unchanged').length;
-  const expected = installationState.length - protectedCount;
-  console.log(`INFO matching installed files — ${installed}/${expected}${protectedCount ? ` (${protectedCount} existing symlink(s) protected)` : ''}`);
-  if (options.installed) check(installed === expected, 'managed installation matches source', `${installed}/${expected} files`);
+  if (options.installed) {
+    const planned = buildPlan(options);
+    const installationState = classify(planned, 'skip');
+    const protectedCount = installationState.filter((item) => item.action === 'protected-symlink').length;
+    const installed = installationState.filter((item) => item.action === 'unchanged').length;
+    const expected = installationState.length - protectedCount;
+    console.log(`INFO matching installed files — ${installed}/${expected}${protectedCount ? ` (${protectedCount} existing symlink(s) protected)` : ''}`);
+    check(installed === expected, 'managed installation matches source', `${installed}/${expected} files`);
+  }
   console.log(failures ? `\nDoctor found ${failures} blocking problem(s).` : '\nDoctor passed all blocking checks.');
   return failures ? 1 : 0;
 }

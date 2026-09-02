@@ -10,7 +10,7 @@ TARGET_HOME=${HOME}
 PROJECT=""
 PROJECT_ONLY=0
 NO_LAUNCH=0
-USE_HERDR=0
+USE_HERDR=1
 STRUCTURAL_ONLY=0
 CONFLICT="backup"
 HARNESS="auto"
@@ -27,7 +27,8 @@ Options:
   --project-only       Leave global configuration untouched (requires --project)
   --conflict POLICY    fail, skip, or backup (default: backup)
   --harness NAME       auto, codex, claude, kimi, or opencode (default: auto)
-  --herdr              Open the selected CLI inside a project Herdr session
+  --herdr              Open inside Herdr (default; accepted for clarity)
+  --direct             Open the selected CLI without Herdr
   --no-launch          Verify setup without opening the selected CLI
   --structural-only    Do not require an authenticated provider
   --help               Show this help
@@ -42,6 +43,7 @@ while [ "$#" -gt 0 ]; do
     --conflict) [ "$#" -ge 2 ] || { echo "ERROR: --conflict requires a policy" >&2; exit 2; }; CONFLICT=$2; shift 2 ;;
     --harness) [ "$#" -ge 2 ] || { echo "ERROR: --harness requires a name" >&2; exit 2; }; HARNESS=$2; shift 2 ;;
     --herdr) USE_HERDR=1; shift ;;
+    --direct) USE_HERDR=0; shift ;;
     --no-launch) NO_LAUNCH=1; shift ;;
     --structural-only) STRUCTURAL_ONLY=1; shift ;;
     --help|-h) usage; exit 0 ;;
@@ -187,7 +189,7 @@ for candidate in $CANDIDATES; do
   if [ "$candidate" = "claude" ] && ! claude_authenticated && [ "$STRUCTURAL_ONLY" -eq 0 ]; then continue; fi
 
   step "Trying the $candidate harness"
-  set -- install --home "$TARGET_HOME" --conflict "$CONFLICT" --tool "$candidate"
+  set -- install --home "$TARGET_HOME" --conflict "$CONFLICT" --tool "$candidate" --quiet
   if [ -n "$PROJECT" ]; then set -- "$@" --project "$PROJECT"; fi
   if [ "$PROJECT_ONLY" -eq 1 ]; then set -- "$@" --project-only; fi
   if [ "$STRUCTURAL_ONLY" -eq 1 ]; then set -- "$@" --structural; fi
@@ -219,8 +221,8 @@ if [ "$STRUCTURAL_ONLY" -eq 1 ]; then
   step "Verifying the installed team structurally"
   set -- doctor --home "$TARGET_HOME" --installed --structural --tool "$SELECTED_HARNESS"
 else
-  step "Verifying the installed team with authenticated model routes"
-  set -- doctor --home "$TARGET_HOME" --installed --tool "$SELECTED_HARNESS"
+  step "Checking source and permission invariants"
+  set -- doctor --home "$TARGET_HOME" --structural --tool "$SELECTED_HARNESS"
 fi
 if [ -n "$PROJECT" ]; then set -- "$@" --project "$PROJECT"; fi
 if [ "$PROJECT_ONLY" -eq 1 ]; then set -- "$@" --project-only; fi

@@ -9,8 +9,8 @@ implicit dependency.
 1. **Intent** — the human states the outcome in ordinary language.
 2. **Orchestra** — `orchestra.json`, agent definitions, and team rules define
    roles, workflow, permissions, model classes, evidence, and escalation.
-3. **Launcher** — `lenka up` verifies a route and starts the selected CLI
-   directly; Herdr is an optional persistent workspace.
+3. **Launcher** — `lenka up` reuses a verified route and starts the selected
+   CLI in a stable Herdr workspace; `--direct` bypasses the workspace.
 4. **Harness** — Codex, Claude Code, Kimi Code, or OpenCode executes the same
    team rules.
 5. **Proof** — tests, static checks, independent audit, cost records, and the
@@ -54,13 +54,17 @@ Desktop clients are optional views and manual workspaces. The autonomous path
 must work without a desktop application so the same repository can be tested
 on macOS, Linux, and Windows.
 
-An explicit user instruction to start work authorizes normal team dispatch, so
-the orchestra announces the plan and continues without a redundant approval
-prompt. An unattended harness may use auto mode, but auto mode is not the safety
-boundary. Explicit agent-level denials remain the boundary: destructive Git,
-file deletion, database resets, remote shells, downloads, publishing, and
-external-directory access are denied. Work that genuinely requires one of
-those capabilities moves to a separate human-approved run.
+An explicit user instruction to start work authorizes normal team dispatch.
+The orchestra offers one compact plan choice, then continues without routine
+approval prompts. Each harness adapter expresses this behavior using its own
+native controls: Codex uses workspace-write with automatic review, Claude Code
+uses automatic permission mode, and Kimi Code and OpenCode use their automatic
+modes. Those flags are adapters, not the cross-harness security policy.
+
+Explicit agent-level denials remain the boundary. Destructive Git, deletion,
+database resets, credential changes, and unrequested external effects require
+the human. A non-destructive external write explicitly named in the requested
+outcome may proceed unattended and must still receive independent proof.
 
 ## Portable installation contract
 

@@ -8,8 +8,9 @@ machine, grant the least permissions required, and demand evidence before work
 is called complete.
 
 It is not a hosted service, a model subscription, or a token broker. It is a
-public skeleton you own and adapt. `lenka up` launches Codex, Claude Code, Kimi
-Code, or OpenCode directly. Herdr is optional and never required.
+public skeleton you own and adapt. `lenka up` opens a stable Herdr workspace and
+launches Codex, Claude Code, Kimi Code, or OpenCode inside it. Use `--direct`
+when you want the selected CLI without Herdr.
 
 > Development is the art of turning intent into verified behavior.
 
@@ -45,8 +46,7 @@ Orkestar deliberately chooses constraints over agent theatre:
 
 The bootstrap detects the platform, installs an isolated Node.js runtime when
 needed, detects an authenticated harness, installs the team, verifies a real
-model response, and opens Lenka directly in the selected CLI. Herdr is installed
-only when `--herdr` is requested.
+model response, installs Herdr, and opens Lenka in a project-specific workspace.
 It does not depend on Homebrew, Laravel Herd, a particular username, or a
 machine-specific project directory.
 
@@ -110,7 +110,7 @@ lenka up codex
 lenka up claude
 lenka up kimi
 lenka up opencode
-lenka up opencode --herdr
+lenka up codex --direct
 lenka up --ask
 lenka status
 lenka doctor
@@ -119,15 +119,21 @@ lenka doctor
 `lenka up` auto-detects an authenticated harness. An explicit harness keeps
 all routing inside that service. The conductor uses the verified `mid`
 coordination model; one-run workers independently use economy, mid, or
-strongest routes according to their capability profile. The default path opens
-that CLI directly. If `--herdr` is added, each absolute project path gets its
-own stable Herdr session.
+strongest routes according to their capability profile. Each absolute project
+path gets its own stable Herdr session. Add `--direct` to bypass Herdr without
+changing the selected harness, model routes, or orchestration rules.
 
 Codex launches are deterministic in both dimensions: the verified model and
 the reasoning effort are pinned by the orchestra. Coordination, planning, and
 normal implementation use `medium`; economy workers use `low`; final audit
 uses `high`. A previous Codex session or machine-wide default cannot silently
 turn an ordinary run into a high-reasoning run.
+
+Autonomy is translated by the selected adapter rather than hard-coded as a
+Codex policy: Codex uses workspace-write with automatic review, Claude Code
+uses its automatic permission mode, and Kimi Code and OpenCode use their own
+automatic modes. The shared Orkestar rules still deny destructive actions and
+unrequested external effects.
 
 Native Windows currently supports `lenka up` through OpenCode. Codex and
 Claude selection through the Lenka command is implemented for macOS and Linux;
@@ -239,30 +245,31 @@ requires `--experimental`.
 Shared skills are installed into `~/.agents/skills`. Project files are never
 written merely because the installer was launched from that directory.
 
-## Direct runtime and optional Herdr
+## Herdr workspace and direct mode
 
-The normal path starts Lenka in the chosen CLI without Herdr:
+The normal path starts Lenka in a stable Herdr workspace:
 
 ```sh
 cd /path/to/project
 lenka up codex
 ```
 
-Use Herdr only when persistent panes are useful:
+Use direct mode when persistent panes are not useful:
 
 ```sh
-lenka up opencode --herdr
+lenka up opencode --direct
 ```
 
-That optional path derives a stable session name from the absolute project
-path, so different projects cannot attach to the same persisted panes. Herdr
-does not choose the model or perform orchestration; the selected CLI still
-does that work. Desktop clients remain optional.
+The default path derives a stable session name from the absolute project path,
+so different projects cannot attach to the same persisted panes. Herdr does
+not choose the model, grant permissions, or perform orchestration; the selected
+CLI adapter still does that work. Desktop clients remain optional.
 
 The user's explicit instruction to start work authorizes normal agent dispatch.
-The orchestra announces the selected roles and models, then continues without
-another approval prompt. Destructive operations and external writes still stop
-at a fresh human-approval boundary.
+The orchestra offers one compact plan choice, then continues without routine
+approval prompts. A non-destructive external write named in the request, such
+as a Laravel Cloud deployment, is already authorized. Destructive operations
+and unrequested external effects still stop at a human boundary.
 
 ## Dynamic agent factory
 

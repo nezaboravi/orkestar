@@ -2,10 +2,10 @@
   "$schema": "./schemas/orchestra.schema.json",
   "schemaVersion": 1,
   "runtime": {
-    "primary": "direct-cli",
+    "primary": "herdr",
     "harness": "auto",
     "fallbackOrder": ["codex", "claude", "kimi", "opencode"],
-    "optionalWorkspace": "herdr",
+    "directFallback": "direct-cli",
     "desktopRequired": false
   },
   "portability": {
@@ -147,7 +147,7 @@
   },
   "safety": {
     "safeOperationsRunUnattended": true,
-    "externalWrites": "deny",
+    "externalWrites": "explicit-request-only",
     "destructiveOperations": "deny",
     "executorCannotApproveOwnWork": true
   },

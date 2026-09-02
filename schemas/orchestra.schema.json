@@ -11,11 +11,11 @@
     "runtime": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["primary", "harness", "fallbackOrder", "optionalWorkspace", "desktopRequired"],
+      "required": ["primary", "harness", "fallbackOrder", "directFallback", "desktopRequired"],
       "properties": {
-        "primary": { "const": "direct-cli" },
+        "primary": { "const": "herdr" },
         "harness": { "const": "auto" },
-        "optionalWorkspace": { "const": "herdr" },
+        "directFallback": { "const": "direct-cli" },
         "fallbackOrder": {
           "type": "array",
           "minItems": 1,

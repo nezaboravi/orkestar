@@ -14,11 +14,16 @@ function launcherArgs(harness, model, cwd = process.cwd(), reasoningEffort = nul
     const persona = fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
     args.push('--config', `developer_instructions=${JSON.stringify(persona)}`);
     if (reasoningEffort) args.push('--config', `model_reasoning_effort=${JSON.stringify(reasoningEffort)}`);
-    args.push('--sandbox', 'read-only', '--ask-for-approval', 'never');
+    args.push('--enable', 'multi_agent', '--sandbox', 'workspace-write', '--approve-for-me');
+  } else if (harness === 'claude') {
+    args.push('--agent', 'lenka', '--permission-mode', 'auto');
+    if (reasoningEffort) args.push('--effort', reasoningEffort);
   } else if (harness === 'kimi') {
     args.push('--agent-file', path.join(cwd, '.kimi-code', 'agents', 'lenka.md'), '--auto');
+  } else if (harness === 'opencode') {
+    args.push('--agent', 'lenka', '--auto');
   } else {
-    args.push('--agent', 'lenka');
+    throw new Error(`Unsupported harness: ${harness}`);
   }
   return args;
 }

@@ -13,6 +13,7 @@ test('Lenka CLI exposes the portable orchestration commands', () => {
   assert.equal(result.status, 0);
   assert.match(result.stdout, /lenka up \[auto\|codex\|claude\|kimi\|opencode\]/);
   assert.match(result.stdout, /--herdr/);
+  assert.match(result.stdout, /--direct/);
   assert.match(result.stdout, /lenka status/);
   assert.match(result.stdout, /lenka doctor/);
 });
@@ -42,5 +43,28 @@ test('Lenka defaults up to auto and the current project', async () => {
   assert.equal(parsed.harness, null);
   assert.equal(parsed.project, process.cwd());
   assert.equal(parsed.conflict, 'backup');
-  assert.equal(parsed.herdr, false);
+  assert.equal(parsed.herdr, true);
+});
+
+test('Lenka accepts terminal punctuation and supports direct mode', async () => {
+  const { parse } = await import('../lenka.mjs');
+  assert.equal(parse(['up.']).command, 'up');
+  assert.equal(parse(['UP', '--direct']).herdr, false);
+});
+
+test('Lenka reuses a verified global runtime without a project reinstall', async () => {
+  const { selectInstalledRuntime } = await import('../lenka.mjs');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'lenka-global-runtime-'));
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'lenka-project-'));
+  const runtime = path.join(home, '.agent-orchestra', 'runtime');
+  fs.mkdirSync(runtime, { recursive: true });
+  fs.writeFileSync(path.join(runtime, 'codex.json'), JSON.stringify({
+    harness: 'codex',
+    primary: { model: 'gpt-5.6-terra', reasoningEffort: 'medium' },
+  }));
+
+  const selected = selectInstalledRuntime(project, 'auto', home, (command) => `/verified/${command}`);
+  assert.equal(selected.harness, 'codex');
+  assert.equal(selected.manifest.primary.model, 'gpt-5.6-terra');
+  assert.equal(selected.binary, '/verified/codex');
 });

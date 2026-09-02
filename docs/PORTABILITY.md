@@ -8,15 +8,15 @@ Homebrew, and a developer's existing shell configuration are not dependencies.
 
 | Platform | Entrypoint | Supported architectures | Herdr | Harness |
 |---|---|---|---|---|
-| macOS | `./bootstrap.sh` | Apple silicon, Intel | optional | Codex / Claude / Kimi / OpenCode auto-selection |
-| Linux | `./bootstrap.sh` | aarch64, x86_64 | optional | Codex / Claude / Kimi / OpenCode auto-selection |
-| Windows | `.\bootstrap.ps1` | x86_64; ARM64 through x86_64 emulation | optional ConPTY workspace | OpenCode (current bootstrap) |
+| macOS | `./bootstrap.sh` | Apple silicon, Intel | default workspace; `--direct` bypass | Codex / Claude / Kimi / OpenCode auto-selection |
+| Linux | `./bootstrap.sh` | aarch64, x86_64 | default workspace; `--direct` bypass | Codex / Claude / Kimi / OpenCode auto-selection |
+| Windows | `.\bootstrap.ps1` | x86_64; ARM64 through x86_64 emulation | default ConPTY workspace; `-Direct` bypass | OpenCode (current bootstrap) |
 
 Both entrypoints install runtime files below the selected user's home, prepend
 those paths only for the bootstrap process, install the same agent definitions,
-and open Lenka directly in the selected CLI. The Unix bootstrap selects Codex,
-Claude Code, Kimi Code, or OpenCode only after a live response. `--herdr` adds
-a project-specific persistent session without changing the harness. Unix does not edit
+and open Lenka in Herdr by default. The Unix bootstrap selects Codex, Claude
+Code, Kimi Code, or OpenCode only after a live response. `--direct` bypasses
+the project-specific persistent session without changing the harness. Unix does not edit
 `.zshrc`, `.bashrc`, or profile files. Windows bootstrap also keeps its runtime
 inside the orchestra directory instead of depending on Chocolatey or Scoop.
 

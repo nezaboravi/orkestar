@@ -10,20 +10,26 @@ test('launcher pins the verified coordination model in Codex', () => {
   const configs = args.flatMap((arg, index) => arg === '--config' ? [args[index + 1]] : []);
   assert.match(configs[0], /^developer_instructions=.*Lenka — the orchestrator/s);
   assert.equal(configs[1], 'model_reasoning_effort="medium"');
-  assert.deepEqual(args.slice(-4), ['--sandbox', 'read-only', '--ask-for-approval', 'never']);
+  assert.deepEqual(args.slice(-5), ['--enable', 'multi_agent', '--sandbox', 'workspace-write', '--approve-for-me']);
   assert.equal(args.includes('--agent'), false);
 });
 
 test('launcher does not invent a reasoning setting for non-Codex harnesses', () => {
   assert.deepEqual(launcherArgs('opencode', 'opencode-go/kimi-k2.7-code', process.cwd(), 'medium'), [
-    '--model', 'opencode-go/kimi-k2.7-code', '--agent', 'lenka',
+    '--model', 'opencode-go/kimi-k2.7-code', '--agent', 'lenka', '--auto',
   ]);
 });
 
-test('launcher pins both Lenka and the verified model in Claude and OpenCode', () => {
-  for (const [harness, model] of [['claude', 'sonnet'], ['opencode', 'opencode-go/kimi-k2.7-code']]) {
-    assert.deepEqual(launcherArgs(harness, model), ['--model', model, '--agent', 'lenka']);
-  }
+test('launcher opens Claude with Lenka and Claude native automatic permissions', () => {
+  assert.deepEqual(launcherArgs('claude', 'sonnet', process.cwd(), 'medium'), [
+    '--model', 'sonnet', '--agent', 'lenka', '--permission-mode', 'auto', '--effort', 'medium',
+  ]);
+});
+
+test('launcher opens OpenCode with Lenka and OpenCode native automatic permissions', () => {
+  assert.deepEqual(launcherArgs('opencode', 'opencode-go/kimi-k2.7-code'), [
+    '--model', 'opencode-go/kimi-k2.7-code', '--agent', 'lenka', '--auto',
+  ]);
 });
 
 test('launcher opens Kimi directly with the generated Lenka agent in autonomous mode', () => {
