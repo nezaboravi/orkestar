@@ -13,6 +13,8 @@ const sourceAgents = path.join(repoRoot, 'agents');
 const sourceTeams = path.join(repoRoot, 'teams');
 const sourceSkills = path.join(repoRoot, 'skills');
 const sourceOpenCodeTools = path.join(repoRoot, 'adapters', 'opencode', 'tools');
+const sourceProtocol = path.join(repoRoot, 'protocol');
+const sourceSchemas = path.join(repoRoot, 'schemas');
 const persona = fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
 const orchestraConfig = JSON.parse(fs.readFileSync(path.join(repoRoot, 'orchestra.json'), 'utf8'));
 const isWindows = process.platform === 'win32';
@@ -409,6 +411,7 @@ function createAgentCharter(request, tool, factoryModels) {
   const fingerprint = crypto.createHash('sha256').update(JSON.stringify({ tool, capability, goal })).digest('hex').slice(0, 8);
   const evidence = [...new Set((request.evidence || []).map((item) => String(item).trim()).filter(Boolean))];
   if (!evidence.length) evidence.push('Return direct evidence that the requested outcome exists and works');
+  const taskContract = request.taskContract ? createTaskContract(request.taskContract) : null;
   return {
     schemaVersion: 1,
     name: `orchestra-${slug}-${fingerprint}`,
@@ -423,7 +426,177 @@ function createAgentCharter(request, tool, factoryModels) {
     externalWrites: profile.externalWrites,
     independentProofRequired: Boolean(factory.requireIndependentProofAfterWrites && (profile.writes || profile.externalWrites)),
     evidence,
+    ...(taskContract ? { taskContract } : {}),
   };
+}
+
+function normalizedStrings(value, label, { required = false } = {}) {
+  if (value == null) {
+    if (required) throw new Error(`${label} is required`);
+    return [];
+  }
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  const normalized = [...new Set(value.map((item) => String(item).trim()).filter(Boolean))];
+  if (required && !normalized.length) throw new Error(`${label} must contain at least one item`);
+  return normalized;
+}
+
+function normalizedRequirements(value) {
+  if (!Array.isArray(value) || !value.length) throw new Error('Task contract required must contain at least one item');
+  const requirements = value.map((item, index) => {
+    const fallbackId = `R${index + 1}`;
+    if (typeof item === 'string') return { id: fallbackId, text: item.trim() };
+    if (!item || typeof item !== 'object') throw new Error('Task contract required items must be strings or objects');
+    return { id: String(item.id || fallbackId).trim(), text: String(item.text || '').trim() };
+  });
+  if (requirements.some((item) => !/^R[1-9][0-9]*$/.test(item.id) || !item.text)) {
+    throw new Error('Task contract required items need an R-number ID and non-empty text');
+  }
+  if (new Set(requirements.map((item) => item.id)).size !== requirements.length) {
+    throw new Error('Task contract required item IDs must be unique');
+  }
+  return requirements;
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** Create the immutable, provider-neutral scope authority for one outcome. */
+function createTaskContract(input = {}) {
+  const goal = String(input.goal || '').trim();
+  if (!goal) throw new Error('Task contract goal is required');
+  const schemaVersion = input.schemaVersion == null ? 1 : input.schemaVersion;
+  if (schemaVersion !== 1) throw new Error(`Unsupported task contract schema version: ${schemaVersion}`);
+  const contract = {
+    schemaVersion,
+    goal,
+    required: normalizedRequirements(input.required),
+    localDecisions: normalizedStrings(input.localDecisions, 'Task contract localDecisions'),
+    outOfScope: normalizedStrings(input.outOfScope, 'Task contract outOfScope'),
+    discoveryPolicy: String(input.discoveryPolicy || 'report-only').trim(),
+    changeSurface: {
+      modules: normalizedStrings(input.changeSurface?.modules, 'Task contract changeSurface.modules'),
+      fileKinds: normalizedStrings(input.changeSurface?.fileKinds, 'Task contract changeSurface.fileKinds'),
+      migrationsAllowed: Boolean(input.changeSurface?.migrationsAllowed),
+      dependenciesAllowed: Boolean(input.changeSurface?.dependenciesAllowed),
+      architectureChangesAllowed: Boolean(input.changeSurface?.architectureChangesAllowed),
+    },
+  };
+  if (contract.discoveryPolicy !== 'report-only') throw new Error('Task contract discoveryPolicy must be report-only');
+  const hash = crypto.createHash('sha256').update(stableJson(contract)).digest('hex');
+  const id = `tc-${hash.slice(0, 12)}`;
+  const digest = `sha256:${hash}`;
+  if (input.id != null && input.id !== id) throw new Error('Task contract ID does not match its immutable content');
+  if (input.hash != null && input.hash !== digest) throw new Error('Task contract hash does not match its immutable content');
+  return { ...contract, id, hash: digest };
+}
+
+/** Validate the identity of an already-created immutable Task Contract. */
+function validateTaskContract(input = {}) {
+  if (!input || typeof input !== 'object') throw new Error('Task contract is required');
+  if (typeof input.id !== 'string' || typeof input.hash !== 'string') {
+    throw new Error('Immutable task contract must include its ID and hash');
+  }
+  return createTaskContract(input);
+}
+
+const protocolPhaseArtifacts = {
+  design: ['repository-evidence', 'approved-design'],
+  plan: ['repository-evidence', 'design-specification'],
+  build: ['approved-plan', 'design-specification'],
+  verify: ['approved-plan', 'changed-behavior', 'builder-evidence'],
+  prove: ['approved-plan', 'changed-behavior', 'verification-evidence', 'diff-summary'],
+  repair: ['accepted-defect', 'reproduction', 'verification-evidence', 'diff-summary'],
+};
+
+/** Build a phase packet without turning prior free-form narrative into scope authority. */
+function createPhasePacket(input = {}) {
+  const taskContract = validateTaskContract(input.taskContract);
+  const phase = String(input.phase || '').trim();
+  if (!Object.hasOwn(protocolPhaseArtifacts, phase)) throw new Error(`Unsupported protocol phase: ${phase}`);
+  const artifacts = Array.isArray(input.artifacts) ? input.artifacts : [];
+  const allowed = new Set(protocolPhaseArtifacts[phase]);
+  const normalizedArtifacts = artifacts.map((artifact) => {
+    if (!artifact || typeof artifact !== 'object') throw new Error('Phase packet artifacts must be objects');
+    const type = String(artifact.type || '').trim();
+    if (!allowed.has(type)) throw new Error(`${type || 'Unknown'} artifact is not allowed in ${phase} phase`);
+    const reference = String(artifact.reference || '').trim();
+    if (!reference) throw new Error('Phase packet artifact reference is required');
+    return { type, reference };
+  });
+  const repairOf = String(input.repairOf || '').trim();
+  if (phase === 'repair' && (!repairOf || !normalizedArtifacts.some((artifact) => artifact.type === 'accepted-defect'))) {
+    throw new Error('Repair phase requires one accepted-defect artifact and repairOf identifier');
+  }
+  if (phase !== 'repair' && repairOf) throw new Error('repairOf is allowed only in the repair phase');
+  return {
+    schemaVersion: 1,
+    phase,
+    taskContract,
+    artifacts: normalizedArtifacts,
+    ...(repairOf ? { repairOf } : {}),
+  };
+}
+
+function validateProtocolResult(input = {}) {
+  const taskContract = validateTaskContract(input.taskContract);
+  const category = String(input.category || '').trim();
+  const classification = String(input.classification || '').trim();
+  const allowed = {
+    finding: ['VERIFIED_DEFECT', 'SCOPED_RISK', 'OUT_OF_SCOPE_DISCOVERY', 'SPECULATION'],
+    failure: ['SCOPED_FAILURE', 'UNRELATED_EXISTING_FAILURE', 'AMBIGUOUS'],
+    discovery: ['OUT_OF_SCOPE_DISCOVERY', 'REPORT_ONLY'],
+  };
+  if (!allowed[category]?.includes(classification)) throw new Error(`Invalid ${category || 'protocol'} classification: ${classification || 'missing'}`);
+  const evidence = normalizedStrings(input.evidence, 'Protocol result evidence', { required: classification !== 'SPECULATION' });
+  const scopeRelation = String(input.scopeRelation || '').trim();
+  if (!['REQUIRED', 'LOCAL_DECISION', 'OUT_OF_SCOPE'].includes(scopeRelation)) throw new Error('Protocol result scopeRelation must be REQUIRED, LOCAL_DECISION, or OUT_OF_SCOPE');
+  const summary = String(input.summary || '').trim();
+  if (!summary) throw new Error('Protocol result summary is required');
+  if (['OUT_OF_SCOPE_DISCOVERY', 'REPORT_ONLY', 'UNRELATED_EXISTING_FAILURE'].includes(classification) && scopeRelation !== 'OUT_OF_SCOPE') {
+    throw new Error(`${classification} must have OUT_OF_SCOPE relation`);
+  }
+  if (['VERIFIED_DEFECT', 'SCOPED_FAILURE', 'SCOPED_RISK'].includes(classification) && scopeRelation === 'OUT_OF_SCOPE') {
+    throw new Error(`${classification} cannot have OUT_OF_SCOPE relation`);
+  }
+  const repairEligible = Boolean(evidence.length && ['VERIFIED_DEFECT', 'SCOPED_FAILURE'].includes(classification) && ['REQUIRED', 'LOCAL_DECISION'].includes(scopeRelation));
+  if (input.repairAuthorized === true && !repairEligible) throw new Error('Only an evidenced verified in-scope defect or scoped failure may authorize repair');
+  return {
+    schemaVersion: 1,
+    taskContractId: taskContract.id,
+    category,
+    classification,
+    scopeRelation,
+    summary,
+    evidence,
+    repairEligible,
+    ...(input.repairAuthorized === true ? { repairAuthorized: true } : {}),
+  };
+}
+
+/** Compare observed work with the contract's semantic change surface. */
+function compareChangeSurface(taskContract, actual = {}) {
+  const contract = validateTaskContract(taskContract);
+  const observed = {
+    modules: normalizedStrings(actual.modules, 'Observed changeSurface.modules'),
+    fileKinds: normalizedStrings(actual.fileKinds, 'Observed changeSurface.fileKinds'),
+    migrations: Boolean(actual.migrations),
+    dependencies: Boolean(actual.dependencies),
+    architectureChanges: Boolean(actual.architectureChanges),
+  };
+  const anomalies = [
+    ...observed.modules.filter((module) => !contract.changeSurface.modules.includes(module)).map((module) => ({ kind: 'module', value: module })),
+    ...observed.fileKinds.filter((fileKind) => !contract.changeSurface.fileKinds.includes(fileKind)).map((fileKind) => ({ kind: 'fileKind', value: fileKind })),
+    ...(observed.migrations && !contract.changeSurface.migrationsAllowed ? [{ kind: 'migration', value: 'unplanned' }] : []),
+    ...(observed.dependencies && !contract.changeSurface.dependenciesAllowed ? [{ kind: 'dependency', value: 'unplanned' }] : []),
+    ...(observed.architectureChanges && !contract.changeSurface.architectureChangesAllowed ? [{ kind: 'architecture', value: 'unplanned' }] : []),
+  ];
+  return { taskContractId: contract.id, anomalous: anomalies.length > 0, anomalies, observed };
 }
 
 function modelProbe(home, model, runner = spawnSync, binary = executable('opencode')) {
@@ -697,6 +870,13 @@ function runtimeManifest(tool, resolvedFactoryModels = {}) {
       model: resolvedFactoryModels[primaryModelClass] || null,
       ...(primaryReasoningEffort ? { reasoningEffort: primaryReasoningEffort } : {}),
     },
+    scopeProtocol: {
+      schemaVersion: orchestraConfig.scopeProtocol?.schemaVersion || 1,
+      contract: '.agent-orchestra/protocol/task-contract.schema.json',
+      phasePacket: '.agent-orchestra/protocol/phase-packet.schema.json',
+      result: '.agent-orchestra/protocol/agent-result.schema.json',
+      dispatcher: 'role-instructions-only',
+    },
     profiles,
   }, null, 2)}\n`;
 }
@@ -757,6 +937,22 @@ function buildPlan(options) {
           });
         }
       }
+    }
+  }
+  if (options.project) {
+    for (const name of ['task-contract.template.json']) {
+      operations.push({
+        target: path.join(options.project, '.agent-orchestra', 'protocol', name),
+        content: fs.readFileSync(path.join(sourceProtocol, name)),
+        kind: 'scope protocol template',
+      });
+    }
+    for (const name of ['task-contract.schema.json', 'phase-packet.schema.json', 'agent-result.schema.json']) {
+      operations.push({
+        target: path.join(options.project, '.agent-orchestra', 'protocol', name),
+        content: fs.readFileSync(path.join(sourceSchemas, name)),
+        kind: 'scope protocol schema',
+      });
     }
   }
   if (!options.projectOnly) {
@@ -1013,4 +1209,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   }
 }
 
-export { parseFrontmatter, parseAgent, codexAgent, cursorAgent, kimiAgent, buildPlan, classify, modelInventory, modelProbe, codexModelInventory, codexModelProbe, cursorModelInventory, cursorModelProbe, claudeModelProbe, kimiModelInventory, kimiModelProbe, resolveModels, resolveFactoryModels, resolveExecutableModels, resolveExecutableFactoryModels, createAgentCharter, runtimeManifest, main };
+export { parseFrontmatter, parseAgent, codexAgent, cursorAgent, kimiAgent, buildPlan, classify, modelInventory, modelProbe, codexModelInventory, codexModelProbe, cursorModelInventory, cursorModelProbe, claudeModelProbe, kimiModelInventory, kimiModelProbe, resolveModels, resolveFactoryModels, resolveExecutableModels, resolveExecutableFactoryModels, createAgentCharter, createTaskContract, validateTaskContract, createPhasePacket, validateProtocolResult, compareChangeSurface, runtimeManifest, main };

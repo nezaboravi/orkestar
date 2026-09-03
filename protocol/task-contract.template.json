@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "goal": "Describe the requested outcome in one sentence.",
+  "required": [
+    {
+      "id": "R1",
+      "text": "Observable behavior that must exist when the work is complete."
+    }
+  ],
+  "localDecisions": [
+    "Follow existing repository conventions and choose the smallest coherent implementation."
+  ],
+  "outOfScope": [
+    "Unrelated refactors, dependency upgrades, and repairs not required by this outcome."
+  ],
+  "discoveryPolicy": "report-only",
+  "changeSurface": {
+    "modules": [],
+    "fileKinds": [],
+    "migrationsAllowed": false,
+    "dependenciesAllowed": false,
+    "architectureChangesAllowed": false
+  }
+}

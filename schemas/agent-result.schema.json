@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nezaboravi/orkestar/schemas/agent-result.schema.json",
+  "title": "Orkestar classified agent result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "taskContractId", "category", "classification", "scopeRelation", "summary", "evidence", "repairEligible"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "taskContractId": { "type": "string", "pattern": "^tc-[a-f0-9]{12}$" },
+    "category": { "enum": ["finding", "failure", "discovery"] },
+    "classification": { "enum": ["VERIFIED_DEFECT", "SCOPED_RISK", "OUT_OF_SCOPE_DISCOVERY", "SPECULATION", "SCOPED_FAILURE", "UNRELATED_EXISTING_FAILURE", "AMBIGUOUS", "REPORT_ONLY"] },
+    "scopeRelation": { "enum": ["REQUIRED", "LOCAL_DECISION", "OUT_OF_SCOPE"] },
+    "summary": { "type": "string", "minLength": 1 },
+    "evidence": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "repairEligible": { "type": "boolean" },
+    "repairAuthorized": { "type": "boolean" }
+  },
+  "allOf": [
+    { "if": { "properties": { "category": { "const": "finding" } } }, "then": { "properties": { "classification": { "enum": ["VERIFIED_DEFECT", "SCOPED_RISK", "OUT_OF_SCOPE_DISCOVERY", "SPECULATION"] } } } },
+    { "if": { "properties": { "category": { "const": "failure" } } }, "then": { "properties": { "classification": { "enum": ["SCOPED_FAILURE", "UNRELATED_EXISTING_FAILURE", "AMBIGUOUS"] } } } },
+    { "if": { "properties": { "category": { "const": "discovery" } } }, "then": { "properties": { "classification": { "enum": ["OUT_OF_SCOPE_DISCOVERY", "REPORT_ONLY"] } } } },
+    {
+      "if": { "properties": { "classification": { "not": { "const": "SPECULATION" } } }, "required": ["classification"] },
+      "then": { "properties": { "evidence": { "minItems": 1 } } }
+    },
+    {
+      "if": { "properties": { "repairAuthorized": { "const": true } }, "required": ["repairAuthorized"] },
+      "then": { "properties": { "repairEligible": { "const": true } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "classification": { "enum": ["OUT_OF_SCOPE_DISCOVERY", "REPORT_ONLY", "UNRELATED_EXISTING_FAILURE"] }
+        },
+        "required": ["classification"]
+      },
+      "then": { "properties": { "scopeRelation": { "const": "OUT_OF_SCOPE" } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "classification": { "enum": ["VERIFIED_DEFECT", "SCOPED_FAILURE", "SCOPED_RISK"] }
+        },
+        "required": ["classification"]
+      },
+      "then": { "properties": { "scopeRelation": { "enum": ["REQUIRED", "LOCAL_DECISION"] } } }
+    },
+    {
+      "if": {
+        "properties": {
+          "classification": { "enum": ["VERIFIED_DEFECT", "SCOPED_FAILURE"] }
+        },
+        "required": ["classification"]
+      },
+      "then": {
+        "properties": {
+          "evidence": { "minItems": 1 },
+          "repairEligible": { "const": true }
+        }
+      },
+      "else": { "properties": { "repairEligible": { "const": false } } }
+    }
+  ]
+}

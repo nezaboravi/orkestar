@@ -17,6 +17,29 @@ implicit dependency.
 5. **Proof** — tests, static checks, independent audit, cost records, and the
    project handoff turn activity into verified behavior.
 
+## Scope protocol
+
+For each non-trivial outcome, Lenka creates one immutable Task Contract. It
+separates required behavior, local implementation decisions, explicit
+out-of-scope work, report-only discoveries, and a semantic change surface. The
+contract is stored with the run, has an ID and hash, and is the only scope
+authority for designer, planner, builder, tester, reviewer, debugger, and
+auditor.
+
+Every phase receives the same contract and only its allowed artifacts. A plan,
+builder report, reviewer finding, or test output is evidence rather than a new
+specification. Findings and failures are typed: scoped failures and verified
+in-scope defects may receive a narrow repair packet; unrelated discoveries and
+speculation remain report-only. Before verification, the team compares the
+actual semantic change surface against the planned modules, file kinds,
+dependency, migration, and architecture allowances.
+
+The schemas and template are installed project-locally at
+`.agent-orchestra/protocol/`. They are dependency-free validation primitives
+and role instructions. They are **not** a shared cross-harness dispatcher or
+state machine: enforcement depends on the selected harness preserving the
+phase packet, and a harness that cannot do so must report that limitation.
+
 ## Dynamic agent factory
 
 An agent has two separate parts:

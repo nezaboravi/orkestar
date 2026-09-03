@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nezaboravi/orkestar/schemas/phase-packet.schema.json",
+  "title": "Orkestar phase packet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "phase", "taskContract", "artifacts"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "phase": { "enum": ["design", "plan", "build", "verify", "prove", "repair"] },
+    "taskContract": { "$ref": "./task-contract.schema.json" },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "reference"],
+        "properties": {
+          "type": { "enum": ["repository-evidence", "approved-design", "design-specification", "approved-plan", "changed-behavior", "builder-evidence", "verification-evidence", "diff-summary", "accepted-defect", "reproduction"] },
+          "reference": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "repairOf": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "phase": { "const": "design" } }, "required": ["phase"] },
+      "then": { "properties": { "artifacts": { "items": { "properties": { "type": { "enum": ["repository-evidence", "approved-design"] } } } } } }
+    },
+    {
+      "if": { "properties": { "phase": { "const": "plan" } }, "required": ["phase"] },
+      "then": { "properties": { "artifacts": { "items": { "properties": { "type": { "enum": ["repository-evidence", "design-specification"] } } } } } }
+    },
+    {
+      "if": { "properties": { "phase": { "const": "build" } }, "required": ["phase"] },
+      "then": { "properties": { "artifacts": { "items": { "properties": { "type": { "enum": ["approved-plan", "design-specification"] } } } } } }
+    },
+    {
+      "if": { "properties": { "phase": { "const": "verify" } }, "required": ["phase"] },
+      "then": { "properties": { "artifacts": { "items": { "properties": { "type": { "enum": ["approved-plan", "changed-behavior", "builder-evidence"] } } } } } }
+    },
+    {
+      "if": { "properties": { "phase": { "const": "prove" } }, "required": ["phase"] },
+      "then": { "properties": { "artifacts": { "items": { "properties": { "type": { "enum": ["approved-plan", "changed-behavior", "verification-evidence", "diff-summary"] } } } } } }
+    },
+    {
+      "if": { "properties": { "phase": { "const": "repair" } }, "required": ["phase"] },
+      "then": { "properties": { "artifacts": { "items": { "properties": { "type": { "enum": ["accepted-defect", "reproduction", "verification-evidence", "diff-summary"] } } } } } }
+    },
+    {
+      "if": { "properties": { "phase": { "const": "repair" } }, "required": ["phase"] },
+      "then": {
+        "required": ["repairOf"],
+        "properties": {
+          "artifacts": {
+            "contains": {
+              "type": "object",
+              "required": ["type"],
+              "properties": { "type": { "const": "accepted-defect" } }
+            },
+            "minContains": 1
+          }
+        }
+      },
+      "else": { "not": { "required": ["repairOf"] } }
+    }
+  ]
+}

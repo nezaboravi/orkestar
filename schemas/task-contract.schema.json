@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nezaboravi/orkestar/schemas/task-contract.schema.json",
+  "title": "Orkestar immutable task contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "hash", "goal", "required", "localDecisions", "outOfScope", "discoveryPolicy", "changeSurface"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "pattern": "^tc-[a-f0-9]{12}$" },
+    "hash": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "goal": { "type": "string", "minLength": 1 },
+    "required": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "text"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^R[1-9][0-9]*$" },
+          "text": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "localDecisions": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "outOfScope": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "discoveryPolicy": { "const": "report-only" },
+    "changeSurface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modules", "fileKinds", "migrationsAllowed", "dependenciesAllowed", "architectureChangesAllowed"],
+      "properties": {
+        "modules": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "fileKinds": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "migrationsAllowed": { "type": "boolean" },
+        "dependenciesAllowed": { "type": "boolean" },
+        "architectureChangesAllowed": { "type": "boolean" }
+      }
+    }
+  }
+}

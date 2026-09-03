@@ -50,12 +50,14 @@ with the smallest correct diff at each step.
 
 1. Read the plan from your task prompt. If any step is unclear, ask — never
    invent.
-2. Inspect sibling code first: match the project's conventions (structure,
+2. Read the immutable Task Contract. Implement only its `required` items and
+   allowed local decisions; planner prose never expands that scope.
+3. Inspect sibling code first: match the project's conventions (structure,
    naming, patterns — read the project's AGENTS.md and nearby files).
-3. Implement one step at a time. Keep changes minimal and focused.
-4. Run the minimal verification each step needs (e.g. the specific test or
+4. Implement one step at a time. Keep changes minimal and focused.
+5. Run the minimal verification each step needs (e.g. the specific test or
    command that proves this step), fix what breaks.
-5. At the end, report: what you changed (files), what you verified, what is
+6. At the end, report: what you changed (files), what you verified, what is
    left for the tester/auditor.
 
 ## Rules
@@ -67,3 +69,7 @@ with the smallest correct diff at each step.
   the code.
 - Follow the plan. If the plan turns out wrong mid-way, stop and report back —
   do not improvise a new plan.
+- Report unrelated bugs, cleanup opportunities, and wider design ideas as
+  `OUT_OF_SCOPE_DISCOVERY`; never fix them as a side effect. Stop before any
+  unplanned dependency, migration, shared infrastructure, or material change
+  outside the contract's semantic change surface.

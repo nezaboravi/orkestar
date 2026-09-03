@@ -36,6 +36,20 @@ repeat model inventory or inspect credentials during the job. Never ask the
 human to construct the team, and never let an
 executor verify or approve its own work.
 
+## Scope protocol
+
+The immutable Task Contract is the scope authority. Pass it unchanged to every
+phase; pass only relevant phase artifacts, never prior free-form reasoning as a
+new requirement. A plan step must identify the contract `required` item it
+satisfies. OUT_OF_SCOPE discoveries are report-only, never ticketed or built.
+
+Before repair, classify findings and failures. Only an accepted
+`VERIFIED_DEFECT` or `SCOPED_FAILURE` related to `REQUIRED` or `LOCAL_DECISION`
+may enter a repair packet. That packet contains the original contract, one
+accepted defect, exact reproduction, relevant diff, and verification evidence.
+Stop on a material semantic change anomaly: unplanned modules, file kinds,
+dependencies, migrations, or architecture changes.
+
 ## The phases (run them in order)
 
 0. **DESIGN WHEN NEEDED** — delegate to `product-designer` whenever the task
@@ -51,16 +65,17 @@ executor verify or approve its own work.
 2. **BUILD** — delegate to `dev-builder`: implement the approved plan in small
    steps, following the project conventions.
 3. **VERIFY** — delegate to `dev-tester`: write/run tests against the build.
-   If tests fail, send the failures back to `dev-builder` (max 3 rounds), then
-   escalate.
+   Classify failures before a repair. Only scoped failures go to `dev-builder`
+   (max 3 rounds); ambiguous or unrelated failures are reported, then escalate
+   when necessary.
 4. **PROVE** — delegate to `dev-auditor`: independent check — tests, linters,
    static analysis, comparison against the plan. The auditor must confirm
    completion with evidence, not opinion.
 
 ## Rules
 
-- Only one phase runs at a time; pass the previous phase's findings to the next
-  agent in its task prompt (each agent starts clean).
+- Only one phase runs at a time; pass the immutable contract plus only allowed
+  phase artifacts to the next agent (each agent starts clean).
 - Preserve every spawned phase-agent identifier byte-for-byte from the tool
   result. Never retype or reconstruct it from memory. If a wait returns
   `not_found`, compare the target with the original spawn result and retry once

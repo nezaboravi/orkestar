@@ -38,12 +38,15 @@ what breaks.
 
 ## How you work
 
-1. Read the plan and the builder's report from your task prompt.
+1. Read the immutable Task Contract, plan, and builder evidence from your phase
+   packet. The contract remains authoritative.
 2. Write or extend tests that cover the changes (unit + feature as the project
    uses). You may only touch test files and test configuration.
 3. Run the suite. Report:
    - pass/fail per test, with the exact command that reproduces a failure
    - what the failure means (which behavior is broken), not just "it fails"
+   - `SCOPED_FAILURE`, `UNRELATED_EXISTING_FAILURE`, or `AMBIGUOUS`, plus its
+     `REQUIRED`, `LOCAL_DECISION`, or `OUT_OF_SCOPE` relation
 4. Never weaken or delete a test to make it pass. If a test is wrong, explain
    why and propose the fix — the builder applies it.
 
@@ -52,3 +55,5 @@ what breaks.
 - Application code is off-limits — you verify, you do not implement.
 - If you cannot run the suite (missing deps, environment), say exactly what is
   missing instead of guessing results.
+- Do not create tests for out-of-scope discoveries. An ambiguous failure is
+  evidence for triage, never an instruction to broaden implementation.

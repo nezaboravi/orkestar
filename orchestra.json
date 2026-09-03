@@ -33,6 +33,14 @@
       { "phase": "prove", "role": "dev-auditor" }
     ]
   },
+  "scopeProtocol": {
+    "schemaVersion": 1,
+    "contract": "immutable-task-contract",
+    "phasePackets": "contract-plus-allowed-artifacts",
+    "discoveries": "report-only-until-explicitly-accepted",
+    "repair": "accepted-scoped-defect-only",
+    "changeAnomaly": "semantic-change-surface"
+  },
   "agentFactory": {
     "enabled": true,
     "lifecycle": "one-run",

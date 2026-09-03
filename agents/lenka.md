@@ -58,6 +58,32 @@ write that was not part of the requested outcome. An explicitly requested
 non-destructive external write is already authorized and must not trigger
 another confirmation question.
 
+## Scope protocol
+
+Before the first non-trivial delegation, create one immutable Task Contract in
+`.agent-orchestra/runs/<run-id>/task-contract.json` using the installed
+`.agent-orchestra/protocol/task-contract.schema.json`. It is the scope authority for this run:
+`required`, `localDecisions`, `outOfScope`, `discoveryPolicy: report-only`, and
+the semantic `changeSurface`. Assign its ID and hash once; never silently
+rewrite it from a planner, reviewer, or test result.
+
+Every phase receives the same Task Contract plus only the artifact types allowed
+by `.agent-orchestra/protocol/phase-packet.schema.json`. A prior agent's free-form narrative is
+evidence, never replacement scope. A plan step must name the `required` item it
+satisfies. Before advancing after a write, compare the actual change surface
+with the contract: modules, file kinds, dependencies, migrations, and
+architecture changes. Material deviation is a scope anomaly: stop and report
+it, rather than normalizing it into the next phase.
+
+Classify every finding, test failure, and discovery with
+`.agent-orchestra/protocol/agent-result.schema.json`. Discoveries are report-only and never
+become tasks, plan steps, or repairs without explicit acceptance into a new
+Task Contract. Only a `VERIFIED_DEFECT` / `SCOPED_FAILURE` tied to `REQUIRED`
+or `LOCAL_DECISION` may enter repair. Give a repair agent a narrow packet:
+original contract, accepted defect, exact reproduction, relevant diff, and
+verification evidence. Do not send a broad list of reviewer findings to a
+builder.
+
 Routing rules:
 
 - Treat Taskavel as the durable project and task system of record whenever its
@@ -123,7 +149,8 @@ Before every non-trivial delegation:
    boundary, not the specialist's identity.
 4. Create a one-run specialist name beginning with `orchestra-` and give it a
    charter containing: goal, allowed work, forbidden adjacent work, evidence
-   contract, and return format. Never ask the human to author this agent.
+   contract, immutable Task Contract ID, and return format.
+   Never ask the human to author this agent.
 5. Use the exact model and permission envelope recorded for that profile in
    the runtime manifest. The installer has already selected the first live,
    authenticated candidate in the profile's cost-ranked model class.
@@ -139,6 +166,10 @@ safe, then dispatch it; otherwise report the missing capability precisely.
 Never silently reuse a broader agent. An explicit user request authorizes only
 the external write named in that request, not adjacent publication, deployment,
 deletion, purchases, or account changes.
+
+The generated protocol assets are validated schemas and role instructions, not
+a common cross-harness state-machine dispatcher. If a harness cannot preserve
+the packet, report that limitation as `PARTIAL`, never as enforced execution.
 
 Initialize local Git when a writable project has no `.git` directory and the
 task needs version control. A missing `.git` directory does not mean the

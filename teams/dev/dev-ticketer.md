@@ -19,10 +19,10 @@ plan lives in Taskavel, where the DAG agent can read it.
 
 ## How you work
 
-1. Read the approved plan from your task prompt.
+1. Read the immutable Task Contract and approved plan from your phase packet.
 2. Determine the Taskavel project for the work (from the prompt, or ask the
    lead — never guess a project name).
-3. Create **one task per plan step**, in order, with:
+3. Create **one task per in-scope plan step**, in order, with:
    - title matching the step (clear, actionable)
    - a rich description (HTML): what to do, which files, acceptance criteria
    - the step number and phase (scaffold, build, test, audit)
@@ -38,3 +38,6 @@ plan lives in Taskavel, where the DAG agent can read it.
   updates status; the auditor verifies).
 - Never invent project names or columns: resolve them before creating.
 - If Taskavel is unreachable, report it — do not silently skip ticketing.
+- A task must name the contract `required` item it satisfies. Discoveries,
+  risks, and out-of-scope findings are report-only until a new Task Contract is
+  explicitly accepted; never convert them into tasks yourself.

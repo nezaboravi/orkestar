@@ -4,7 +4,7 @@
   "title": "agent-orchestra configuration",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "runtime", "portability", "coordination", "team", "agentFactory", "modelPolicy", "safety", "evidence"],
+  "required": ["schemaVersion", "runtime", "portability", "coordination", "team", "scopeProtocol", "agentFactory", "modelPolicy", "safety", "evidence"],
   "properties": {
     "$schema": { "type": "string" },
     "schemaVersion": { "const": 1 },
@@ -79,6 +79,19 @@
             }
           }
         }
+      }
+    },
+    "scopeProtocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "contract", "phasePackets", "discoveries", "repair", "changeAnomaly"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "contract": { "const": "immutable-task-contract" },
+        "phasePackets": { "const": "contract-plus-allowed-artifacts" },
+        "discoveries": { "const": "report-only-until-explicitly-accepted" },
+        "repair": { "const": "accepted-scoped-defect-only" },
+        "changeAnomaly": { "const": "semantic-change-surface" }
       }
     },
     "agentFactory": {
