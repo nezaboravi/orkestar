@@ -19,7 +19,7 @@
         "fallbackOrder": {
           "type": "array",
           "minItems": 1,
-          "items": { "enum": ["codex", "claude", "kimi", "opencode"] },
+          "items": { "enum": ["cursor", "codex", "claude", "kimi", "opencode"] },
           "uniqueItems": true
         },
         "desktopRequired": { "const": false }
@@ -73,8 +73,9 @@
             "additionalProperties": false,
             "required": ["phase", "role"],
             "properties": {
-              "phase": { "enum": ["plan", "build", "verify", "prove"] },
-              "role": { "type": "string", "minLength": 1 }
+              "phase": { "enum": ["design", "plan", "build", "verify", "prove"] },
+              "role": { "type": "string", "minLength": 1 },
+              "when": { "type": "string", "minLength": 1 }
             }
           }
         }

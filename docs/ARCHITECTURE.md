@@ -12,7 +12,7 @@ implicit dependency.
 3. **Launcher** — `lenka up` reuses a verified route and starts the selected
    CLI in a stable Herdr workspace; `lenka up solo` uses Solo as an optional
    visual control plane, while `--direct` bypasses a workspace.
-4. **Harness** — Codex, Claude Code, Kimi Code, or OpenCode executes the same
+4. **Harness** — Cursor Agent, Codex, Claude Code, Kimi Code, or OpenCode executes the same
    team rules.
 5. **Proof** — tests, static checks, independent audit, cost records, and the
    project handoff turn activity into verified behavior.
@@ -99,11 +99,12 @@ The installer must:
 
 Codex and Claude Code have authenticated model and generated-format proofs;
 their full team behavior proofs are still pending. Kimi Code has a native
-agent-format adapter and direct launcher. Cursor stays experimental until its
-generated output passes a real end-to-end run.
+agent-format adapter and direct launcher. Cursor uses the official `agent` CLI
+and `.cursor/agents/*.md` frontmatter; its authenticated end-to-end behavior
+proof is still pending.
 
 Model names and credentials belong to an adapter. The Unix bootstrap tries the
-declared harness order (`codex`, `claude`, `kimi`, `opencode`) and requires a minimal
+declared harness order (`cursor`, `codex`, `claude`, `kimi`, `opencode`) and requires a minimal
 live response before selecting one. Codex uses its ChatGPT sign-in and own model
 catalog; Claude Code uses its own sign-in and starts with Haiku; Kimi Code uses
 its own provider configuration; OpenCode tests its own declared provider

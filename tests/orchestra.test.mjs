@@ -4,9 +4,18 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { buildPlan, classify, codexAgent, codexModelInventory, codexModelProbe, createAgentCharter, kimiAgent, kimiModelInventory, kimiModelProbe, main, modelProbe, parseAgent, parseFrontmatter, resolveExecutableFactoryModels, resolveExecutableModels, resolveFactoryModels, resolveModels, runtimeManifest } from '../orchestra.mjs';
+import { buildPlan, classify, codexAgent, codexModelInventory, codexModelProbe, createAgentCharter, cursorAgent, cursorModelInventory, cursorModelProbe, kimiAgent, kimiModelInventory, kimiModelProbe, main, modelProbe, parseAgent, parseFrontmatter, resolveExecutableFactoryModels, resolveExecutableModels, resolveFactoryModels, resolveModels, runtimeManifest } from '../orchestra.mjs';
 
 const repoRoot = path.resolve(import.meta.dirname, '..');
+
+test('the shipped fallback order contains only harnesses accepted by the schema', () => {
+  const config = JSON.parse(fs.readFileSync(path.join(repoRoot, 'orchestra.json'), 'utf8'));
+  const schema = JSON.parse(fs.readFileSync(path.join(repoRoot, 'schemas', 'orchestra.schema.json'), 'utf8'));
+  const accepted = schema.properties.runtime.properties.fallbackOrder.items.enum;
+
+  assert.ok(accepted.includes('cursor'));
+  assert.deepEqual(config.runtime.fallbackOrder.filter((harness) => !accepted.includes(harness)), []);
+});
 
 function silently(callback) {
   const originalLog = console.log;
@@ -72,6 +81,38 @@ test('Codex inventory and live probe use Codex-native model slugs', () => {
   assert.equal(result.tokens, 42);
 });
 
+test('Cursor conversion uses official subagent frontmatter and inherits the verified route', () => {
+  const agent = parseAgent(path.join(repoRoot, 'teams', 'dev', 'product-designer.md'));
+  const rendered = cursorAgent(agent);
+  assert.match(rendered, /^---\nname: product-designer\n/);
+  assert.match(rendered, /model: inherit/);
+  assert.match(rendered, /Do not edit files/);
+});
+
+test('Lenka invokes product design only through the development lead when it is needed', () => {
+  const lenka = fs.readFileSync(path.join(repoRoot, 'agents', 'lenka.md'), 'utf8');
+  const config = JSON.parse(fs.readFileSync(path.join(repoRoot, 'orchestra.json'), 'utf8'));
+  const designPhase = config.team.workflow.find((step) => step.phase === 'design');
+
+  assert.deepEqual(designPhase, {
+    phase: 'design',
+    role: 'product-designer',
+    when: 'new-product-or-approved-ux-change',
+  });
+  assert.equal(config.agentFactory.profiles['product-design'].modelClass, 'strongest');
+  assert.equal(config.agentFactory.profiles['product-design'].writes, false);
+  assert.match(lenka, /product-designer when\n  needed/);
+  assert.match(lenka, /strongest verified model class/);
+});
+
+test('Cursor inventory and probe use the Cursor Agent CLI', () => {
+  const inventory = cursorModelInventory('/tmp/home', () => ({ status: 0, stdout: 'composer-2\ngpt-5.6-sol\n' }), '/bin/agent');
+  assert.deepEqual(inventory, ['composer-2', 'gpt-5.6-sol']);
+  const probe = cursorModelProbe('/tmp/home', 'composer-2', () => ({ status: 0, stdout: JSON.stringify({ result: 'ORCHESTRA_CURSOR_OK' }), stderr: '' }), '/bin/agent');
+  assert.equal(probe.ok, true);
+  assert.equal(probe.tokens, null);
+});
+
 test('Kimi conversion preserves the main orchestrator and least-privilege role tools', () => {
   const lenka = parseAgent(path.join(repoRoot, 'agents', 'lenka.md'));
   const builder = parseAgent(path.join(repoRoot, 'teams', 'dev', 'dev-builder.md'));
@@ -133,7 +174,7 @@ test('clean-room plan omits machine-owned skill paths', () => {
     project: path.join(root, 'project'),
   });
 
-  assert.equal(plan.agentCount, 21);
+  assert.equal(plan.agentCount, 22);
   assert.equal(plan.operations.some((operation) => operation.target.includes(`${path.sep}omarchy${path.sep}`)), false);
 });
 
@@ -190,7 +231,7 @@ test('declared workflow resolves to real team agents', () => {
   for (const role of declared) {
     assert.ok(fs.existsSync(path.join(repoRoot, 'teams', 'dev', `${role}.md`)), `${role} must exist`);
   }
-  assert.deepEqual(config.team.workflow.map((step) => step.phase), ['plan', 'build', 'verify', 'prove']);
+  assert.deepEqual(config.team.workflow.map((step) => step.phase), ['design', 'plan', 'build', 'verify', 'prove']);
   assert.equal(config.modelPolicy.humanConfirmationBeforeFirstDispatch, false);
 });
 

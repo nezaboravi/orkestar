@@ -24,7 +24,7 @@ const tools = {
   claude: { command: 'claude', stable: true, agentPath: ['.claude', 'agents'], projectAgentPath: ['.claude', 'agents'] },
   codex: { command: 'codex', stable: true, agentPath: ['.codex', 'agents'], projectAgentPath: ['.codex', 'agents'] },
   kimi: { command: 'kimi', stable: true, agentPath: ['.kimi-code', 'agents'], projectAgentPath: ['.kimi-code', 'agents'] },
-  cursor: { command: 'cursor', stable: false, agentPath: ['.cursor', 'agents'], projectAgentPath: ['.cursor', 'agents'] },
+  cursor: { command: 'agent', stable: true, agentPath: ['.cursor', 'agents'], projectAgentPath: ['.cursor', 'agents'] },
 };
 
 function usage(code = 0) {
@@ -44,7 +44,7 @@ Options:
   --quiet                Print a compact install summary
   --installed            With doctor, require every managed file to match
   --structural           With doctor, verify files/tools without provider models
-  --experimental         Enable unverified Claude/Codex/Cursor adapters
+  --experimental         Enable unverified adapters
   --help                 Show this help
 `);
   process.exit(code);
@@ -263,7 +263,16 @@ function kimiAgent(agent) {
 }
 
 function cursorAgent(agent) {
-  return `# ${agent.name}\n\n## When to use\n\n${agent.frontmatter.description || ''}\n\n## Instructions\n\n${agent.body}\n`;
+  return [
+    '---',
+    `name: ${agent.name}`,
+    `description: ${agent.frontmatter.description || ''}`,
+    'model: inherit',
+    '---',
+    '',
+    agent.body,
+    '',
+  ].join('\n');
 }
 
 function opencodeAgent(agent, selectedModel) {
@@ -295,11 +304,26 @@ function modelInventory(home, tool = 'opencode') {
   if (tool === 'codex') return codexModelInventory(home);
   if (tool === 'claude') return declaredModels('claude');
   if (tool === 'kimi') return kimiModelInventory(home);
+  if (tool === 'cursor') return cursorModelInventory(home);
   const binary = executable('opencode');
   if (!binary) return [];
   const result = spawnSync(binary, ['models'], { encoding: 'utf8', timeout: 15000, env: targetEnvironment(home) });
   if (result.status !== 0) return [];
   return [...new Set(result.stdout.split(/\r?\n/).map((line) => line.trim()).filter((line) => /^[^\s/]+\/[^\s]+$/.test(line)))];
+}
+
+function cursorModelInventory(home, runner = spawnSync, binary = executable('agent')) {
+  if (!binary) return [];
+  const result = runner(binary, ['--list-models'], { encoding: 'utf8', timeout: 15000, env: targetEnvironment(home) });
+  if (result?.status !== 0) return [];
+  const output = String(result.stdout || '').trim();
+  try {
+    const parsed = JSON.parse(output || '[]');
+    const rows = Array.isArray(parsed) ? parsed : (parsed.models || []);
+    return [...new Set(rows.map((model) => typeof model === 'string' ? model : (model.id || model.slug || model.name)).filter(Boolean))];
+  } catch {
+    return [...new Set(output.split(/\r?\n/).map((line) => line.trim().replace(/^[-*]\s*/, '').split(/\s{2,}|\t/)[0]).filter((line) => line && !/models available|model\s+name/i.test(line)))];
+  }
 }
 
 function kimiModelInventory(home, runner = spawnSync, binary = executable('kimi')) {
@@ -345,7 +369,7 @@ function codexModelInventory(home, runner = spawnSync, binary = executable('code
 }
 
 function resolveModels(inventory, tool = 'opencode') {
-  if (tool === 'kimi') {
+  if (tool === 'kimi' || tool === 'cursor') {
     const selected = inventory[0] || null;
     return Object.fromEntries(Object.keys(declaredRoles(tool)).map((role) => [role, selected]));
   }
@@ -357,7 +381,7 @@ function resolveModels(inventory, tool = 'opencode') {
 }
 
 function resolveFactoryModels(inventory, tool = 'opencode') {
-  if (tool === 'kimi') {
+  if (tool === 'kimi' || tool === 'cursor') {
     const selected = inventory[0] || null;
     return Object.fromEntries(Object.keys(declaredClasses(tool)).map((modelClass) => [modelClass, selected]));
   }
@@ -510,7 +534,28 @@ function kimiModelProbe(home, model, runner = spawnSync, binary = executable('ki
   return { model, ok: false, reason: `Kimi returned no verified response${result?.status ? ` (status ${result.status})` : ''}`, authFailure: false, tokens: null, cost: null };
 }
 
+function cursorModelProbe(home, model, runner = spawnSync, binary = executable('agent')) {
+  const marker = 'ORCHESTRA_CURSOR_OK';
+  if (!binary) return { model, ok: false, reason: 'Cursor Agent CLI not found', authFailure: false, tokens: null, cost: null };
+  const result = runner(binary, [
+    '--print', '--output-format', 'json', '--model', model, '--force',
+    `Reply with exactly ${marker}. Do not use tools.`,
+  ], { encoding: 'utf8', timeout: 45000, env: targetEnvironment(home), input: '' });
+  let parsed = {};
+  try { parsed = JSON.parse(result?.stdout || '{}'); } catch { /* Classify below. */ }
+  const text = String(parsed.result || parsed.text || parsed.message?.content || '').trim();
+  const diagnostic = `${result?.stdout || ''}\n${result?.stderr || ''}`;
+  const authFailure = /(?:\b401\b|unauthori[sz]ed|not logged in|no models available|invalid\s+(?:auth(?:entication)?\s+)?token)/i.test(diagnostic);
+  if ((text === marker || (!text && diagnostic.includes(marker))) && result?.status === 0) {
+    return { model, ok: true, reason: 'verified response', authFailure: false, tokens: null, cost: null };
+  }
+  if (authFailure) return { model, ok: false, reason: 'Cursor authentication rejected', authFailure: true, tokens: null, cost: null };
+  if (result?.error?.code === 'ETIMEDOUT') return { model, ok: false, reason: 'model probe timed out', authFailure: false, tokens: null, cost: null };
+  return { model, ok: false, reason: `Cursor returned no verified response${result?.status ? ` (status ${result.status})` : ''}`, authFailure: false, tokens: null, cost: null };
+}
+
 function probeForTool(tool) {
+  if (tool === 'cursor') return cursorModelProbe;
   if (tool === 'codex') return codexModelProbe;
   if (tool === 'claude') return claudeModelProbe;
   if (tool === 'kimi') return kimiModelProbe;
@@ -968,4 +1013,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   }
 }
 
-export { parseFrontmatter, parseAgent, codexAgent, kimiAgent, buildPlan, classify, modelInventory, modelProbe, codexModelInventory, codexModelProbe, claudeModelProbe, kimiModelInventory, kimiModelProbe, resolveModels, resolveFactoryModels, resolveExecutableModels, resolveExecutableFactoryModels, createAgentCharter, runtimeManifest, main };
+export { parseFrontmatter, parseAgent, codexAgent, cursorAgent, kimiAgent, buildPlan, classify, modelInventory, modelProbe, codexModelInventory, codexModelProbe, cursorModelInventory, cursorModelProbe, claudeModelProbe, kimiModelInventory, kimiModelProbe, resolveModels, resolveFactoryModels, resolveExecutableModels, resolveExecutableFactoryModels, createAgentCharter, runtimeManifest, main };

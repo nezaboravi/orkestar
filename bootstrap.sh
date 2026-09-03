@@ -26,7 +26,7 @@ Options:
   --project PATH       Install project-local agents into PATH
   --project-only       Leave global configuration untouched (requires --project)
   --conflict POLICY    fail, skip, or backup (default: backup)
-  --harness NAME       auto, codex, claude, kimi, or opencode (default: auto)
+  --harness NAME       auto, cursor, codex, claude, kimi, or opencode (default: auto)
   --herdr              Open inside Herdr (default; accepted for clarity)
   --direct             Open the selected CLI without Herdr
   --no-launch          Verify setup without opening the selected CLI
@@ -52,7 +52,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 case "$CONFLICT" in fail|skip|backup) ;; *) echo "ERROR: --conflict must be fail, skip, or backup" >&2; exit 2 ;; esac
-case "$HARNESS" in auto|codex|claude|kimi|opencode) ;; *) echo "ERROR: --harness must be auto, codex, claude, kimi, or opencode" >&2; exit 2 ;; esac
+case "$HARNESS" in auto|cursor|codex|claude|kimi|opencode) ;; *) echo "ERROR: --harness must be auto, cursor, codex, claude, kimi, or opencode" >&2; exit 2 ;; esac
 [ "$PROJECT_ONLY" -eq 0 ] || [ -n "$PROJECT" ] || { echo "ERROR: --project-only requires --project" >&2; exit 2; }
 
 case "$TARGET_HOME" in /*) ;; *) TARGET_HOME="$(pwd)/$TARGET_HOME" ;; esac
@@ -166,12 +166,13 @@ if [ "${LENKA_CLI_ACTIVE:-0}" != "1" ] && [ -d "$REPO_DIR/.git" ]; then
 fi
 
 case "$HARNESS" in
+  cursor) command -v agent >/dev/null 2>&1 || fail "Cursor Agent is not installed; install Cursor from https://cursor.com/downloads and enable its CLI" ;;
   codex) install_codex ;;
   claude) command -v claude >/dev/null 2>&1 || fail "Claude Code is not installed; install it or choose another harness" ;;
   kimi) command -v kimi >/dev/null 2>&1 || fail "Kimi Code CLI is not installed; install it or choose another harness" ;;
   opencode) install_opencode ;;
   auto)
-    if ! command -v codex >/dev/null 2>&1 && ! command -v claude >/dev/null 2>&1 && ! command -v kimi >/dev/null 2>&1 && ! command -v opencode >/dev/null 2>&1; then
+    if ! command -v agent >/dev/null 2>&1 && ! command -v codex >/dev/null 2>&1 && ! command -v claude >/dev/null 2>&1 && ! command -v kimi >/dev/null 2>&1 && ! command -v opencode >/dev/null 2>&1; then
       install_codex
     fi
     ;;
@@ -181,10 +182,12 @@ step "Detected tools"
 node --version
 if [ "$USE_HERDR" -eq 1 ]; then herdr --version; fi
 
-if [ "$HARNESS" = "auto" ]; then CANDIDATES="codex claude kimi opencode"; else CANDIDATES="$HARNESS"; fi
+if [ "$HARNESS" = "auto" ]; then CANDIDATES="cursor codex claude kimi opencode"; else CANDIDATES="$HARNESS"; fi
 SELECTED_HARNESS=""
 for candidate in $CANDIDATES; do
-  command -v "$candidate" >/dev/null 2>&1 || continue
+  candidate_command=$candidate
+  [ "$candidate" != "cursor" ] || candidate_command=agent
+  command -v "$candidate_command" >/dev/null 2>&1 || continue
   if [ "$candidate" = "codex" ] && ! codex_authenticated && [ "$STRUCTURAL_ONLY" -eq 0 ]; then continue; fi
   if [ "$candidate" = "claude" ] && ! claude_authenticated && [ "$STRUCTURAL_ONLY" -eq 0 ]; then continue; fi
 
@@ -214,7 +217,9 @@ if [ -z "$SELECTED_HARNESS" ]; then
   fail "no authenticated harness worked; sign in to Codex, Claude Code, Kimi Code, or an OpenCode provider, then run bootstrap again"
 fi
 
-"$SELECTED_HARNESS" --version
+selected_command=$SELECTED_HARNESS
+[ "$SELECTED_HARNESS" != "cursor" ] || selected_command=agent
+"$selected_command" --version
 printf 'Harness: %s\n' "$SELECTED_HARNESS"
 
 if [ "$STRUCTURAL_ONLY" -eq 1 ]; then
@@ -244,7 +249,7 @@ reasoning_effort=$(node -e 'const fs = require("node:fs"); const manifest = JSON
 printf 'Conductor model: %s\n' "$primary_model"
 if [ -n "$reasoning_effort" ]; then printf 'Reasoning effort: %s\n' "$reasoning_effort"; fi
 cd "$launch_dir"
-harness_binary=$(command -v "$SELECTED_HARNESS")
+harness_binary=$(command -v "$selected_command")
 export AGENT_ORCHESTRA_HARNESS="$SELECTED_HARNESS"
 export AGENT_ORCHESTRA_HARNESS_BINARY="$harness_binary"
 export AGENT_ORCHESTRA_PRIMARY_MODEL="$primary_model"

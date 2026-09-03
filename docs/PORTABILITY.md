@@ -8,17 +8,31 @@ Homebrew, and a developer's existing shell configuration are not dependencies.
 
 | Platform | Entrypoint | Supported architectures | Herdr | Harness |
 |---|---|---|---|---|
-| macOS | `./bootstrap.sh` | Apple silicon, Intel | default workspace; `--direct` bypass | Codex / Claude / Kimi / OpenCode auto-selection |
-| Linux (glibc, including Arch/Omarchy) | `./bootstrap.sh` | aarch64, x86_64 | default workspace; `--direct` bypass | Codex / Claude / Kimi / OpenCode auto-selection |
+| macOS | `./bootstrap.sh` | Apple silicon, Intel | Solo / Herdr / direct | Cursor / Codex / Claude / Kimi / OpenCode |
+| Linux (glibc, including Arch/Omarchy) | `./bootstrap.sh` | aarch64, x86_64 | Herdr / direct | Cursor / Codex / Claude / Kimi / OpenCode |
 | Windows | `.\bootstrap.ps1` | x86_64; ARM64 through x86_64 emulation | default ConPTY workspace; `-Direct` bypass | OpenCode (current bootstrap) |
 
 Both entrypoints install runtime files below the selected user's home, prepend
 those paths only for the bootstrap process, install the same agent definitions,
-and open Lenka in Herdr by default. The Unix bootstrap selects Codex, Claude
-Code, Kimi Code, or OpenCode only after a live response. `--direct` bypasses
+and open Lenka in Herdr by default. The Unix bootstrap selects Cursor Agent,
+Codex, Claude Code, Kimi Code, or OpenCode only after a live response. `--direct` bypasses
 the project-specific persistent session without changing the harness. Unix does not edit
 `.zshrc`, `.bashrc`, or profile files. Windows bootstrap also keeps its runtime
 inside the orchestra directory instead of depending on Chocolatey or Scoop.
+
+## Friendly setup and detection
+
+`lenka setup` treats the harness and workspace as different decisions. It
+detects installed CLIs, CLI-reported authentication where available, existing
+verified runtime manifests, Solo availability, and Herdr availability. A saved
+valid preference wins. If several authenticated services are possible, setup
+asks which subscription to use instead of comparing prices that providers do
+not expose. Model cost ordering happens inside the chosen adapter.
+
+The optional Taskavel step configures the public HTTP MCP endpoint and opens
+the selected CLI's native OAuth login. Tokens are never copied into the
+preference file. Kimi Code currently has no verified MCP setup command, so that
+adapter reports the limitation instead of claiming a connection.
 
 ## Optional Solo workspace
 

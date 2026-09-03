@@ -39,7 +39,7 @@ test('bootstraps install the orchestra with Herdr as the default workspace', () 
   assert.match(unix, /if \[ "\$USE_HERDR" -eq 1 \]; then install_herdr; fi/);
   assert.match(windows, /if \(\$HerdrEnabled -and \$null -eq \(Get-Command herdr\.exe/);
   assert.match(unix, /chatgpt\.com\/codex\/install\.sh/);
-  assert.match(unix, /CANDIDATES="codex claude kimi opencode"/);
+  assert.match(unix, /CANDIDATES="cursor codex claude kimi opencode"/);
   assert.match(unix, /trying the next configured harness/i);
   assert.match(windows, /opencode-ai/);
 });
@@ -88,14 +88,14 @@ test('Herdr is the default project-scoped workspace with a direct bypass', () =>
   assert.doesNotMatch(unix, /herdr --session agent-orchestra/);
   assert.doesNotMatch(windows, /--session agent-orchestra/);
   assert.match(windows, /herdr-starter\.mjs/);
-  assert.match(windows, /runtime\\opencode\.json/);
+  assert.match(windows, /runtime\\\$SelectedHarness\.json/);
   assert.match(unix, /herdr-starter\.mjs/);
   assert.doesNotMatch(unix, /default_shell/);
   assert.doesNotMatch(windows, /default_shell/);
 });
 
-test('Windows retains a direct OpenCode escape path', () => {
-  assert.match(windows, /Write-Step "Opening Lenka directly in OpenCode"/);
+test('Windows retains a provider-neutral direct CLI escape path', () => {
+  assert.match(windows, /Write-Step "Opening Lenka directly in \$SelectedHarness"/);
   assert.match(windows, /harness-launcher\.mjs/);
 });
 

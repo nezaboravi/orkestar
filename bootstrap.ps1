@@ -5,6 +5,8 @@ param(
     [switch]$ProjectOnly,
     [ValidateSet("fail", "skip", "backup")]
     [string]$Conflict = "backup",
+    [ValidateSet("auto", "cursor", "codex", "claude", "kimi", "opencode")]
+    [string]$Harness = "auto",
     [switch]$UseHerdr,
     [switch]$Direct,
     [switch]$NoLaunch,
@@ -110,7 +112,14 @@ if ($HerdrEnabled -and $null -eq (Get-Command herdr.exe -ErrorAction SilentlyCon
     }
 }
 
-if ($null -eq (Get-Command opencode.exe -ErrorAction SilentlyContinue) -and $null -eq (Get-Command opencode.cmd -ErrorAction SilentlyContinue)) {
+$AnyHarness = $null -ne (Get-Command agent -ErrorAction SilentlyContinue) -or
+    $null -ne (Get-Command codex -ErrorAction SilentlyContinue) -or
+    $null -ne (Get-Command claude -ErrorAction SilentlyContinue) -or
+    $null -ne (Get-Command kimi -ErrorAction SilentlyContinue) -or
+    $null -ne (Get-Command opencode -ErrorAction SilentlyContinue)
+if (($Harness -eq "opencode" -or ($Harness -eq "auto" -and -not $AnyHarness)) -and
+    $null -eq (Get-Command opencode.exe -ErrorAction SilentlyContinue) -and
+    $null -eq (Get-Command opencode.cmd -ErrorAction SilentlyContinue)) {
     Write-Step "Installing OpenCode into the isolated runtime"
     & npm.cmd install --global --prefix $NpmPrefix opencode-ai
     if ($LASTEXITCODE -ne 0) { throw "OpenCode installation failed." }
@@ -118,8 +127,27 @@ if ($null -eq (Get-Command opencode.exe -ErrorAction SilentlyContinue) -and $nul
 
 $Node = (Get-Command node.exe).Source
 $HerdrExe = if ($HerdrEnabled) { (Get-Command herdr.exe).Source } else { $null }
-$OpenCodeCommand = Get-Command opencode.exe -ErrorAction SilentlyContinue
-if ($null -eq $OpenCodeCommand) { $OpenCodeCommand = Get-Command opencode.cmd -ErrorAction Stop }
+$HarnessCommands = [ordered]@{
+    cursor = "agent"
+    codex = "codex"
+    claude = "claude"
+    kimi = "kimi"
+    opencode = "opencode"
+}
+$SelectedHarness = ""
+$SelectedCommand = $null
+$Candidates = if ($Harness -eq "auto") { @($HarnessCommands.Keys) } else { @($Harness) }
+foreach ($Candidate in $Candidates) {
+    $Command = Get-Command $HarnessCommands[$Candidate] -ErrorAction SilentlyContinue
+    if ($null -ne $Command) {
+        $SelectedHarness = $Candidate
+        $SelectedCommand = $Command
+        break
+    }
+}
+if ([string]::IsNullOrWhiteSpace($SelectedHarness)) {
+    throw "No supported AI CLI is installed. Install Cursor, Codex, Claude Code, Kimi Code, or OpenCode."
+}
 
 if ($env:LENKA_CLI_ACTIVE -ne "1" -and (Test-Path -LiteralPath (Join-Path $RepoDir ".git") -PathType Container)) {
     Write-Step "Installing the Lenka command"
@@ -151,9 +179,9 @@ if ($env:LENKA_CLI_ACTIVE -ne "1" -and (Test-Path -LiteralPath (Join-Path $RepoD
 Write-Step "Detected tools"
 & $Node --version
 if ($HerdrEnabled) { & $HerdrExe --version }
-& $OpenCodeCommand.Source --version
+& $SelectedCommand.Source --version
 
-$InstallArgs = @("install", "--home", $TargetHome, "--conflict", $Conflict, "--quiet")
+$InstallArgs = @("install", "--home", $TargetHome, "--conflict", $Conflict, "--quiet", "--tool", $SelectedHarness)
 $DoctorArgs = @("doctor", "--home", $TargetHome, "--installed")
 if (-not [string]::IsNullOrWhiteSpace($Project)) {
     $InstallArgs += @("--project", $Project)
@@ -175,7 +203,7 @@ if ($StructuralOnly) {
     if ($LASTEXITCODE -ne 0) { throw "Structural verification failed." }
 } else {
     Write-Step "Checking source and permission invariants"
-    & $Node (Join-Path $RepoDir "orchestra.mjs") doctor --home $TargetHome --structural --tool opencode
+    & $Node (Join-Path $RepoDir "orchestra.mjs") doctor --home $TargetHome --structural --tool $SelectedHarness
     if ($LASTEXITCODE -ne 0) { throw "Source and permission verification failed." }
 }
 
@@ -184,38 +212,44 @@ if ($NoLaunch) { exit 0 }
 
 $LaunchDir = if ([string]::IsNullOrWhiteSpace($Project)) { $RepoDir } else { $Project }
 Set-Location -LiteralPath $LaunchDir
-$OpenCodePrimaryModel = ""
+$PrimaryModel = ""
 if (-not [string]::IsNullOrWhiteSpace($Project)) {
-    $RuntimeManifest = Join-Path $Project ".agent-orchestra\runtime\opencode.json"
+    $RuntimeManifest = Join-Path $Project ".agent-orchestra\runtime\$SelectedHarness.json"
 } else {
-    $RuntimeManifest = Join-Path $TargetHome ".agent-orchestra\runtime\opencode.json"
+    $RuntimeManifest = Join-Path $TargetHome ".agent-orchestra\runtime\$SelectedHarness.json"
 }
 if (-not (Test-Path -LiteralPath $RuntimeManifest -PathType Leaf)) {
-    throw "OpenCode runtime manifest is missing: $RuntimeManifest"
+    throw "$SelectedHarness runtime manifest is missing: $RuntimeManifest"
 }
 $RuntimeRouting = Get-Content -LiteralPath $RuntimeManifest -Raw | ConvertFrom-Json
-$OpenCodePrimaryModel = [string]$RuntimeRouting.primary.model
-if ([string]::IsNullOrWhiteSpace($OpenCodePrimaryModel)) {
-    throw "No verified OpenCode coordination model was recorded for Lenka."
+$PrimaryModel = [string]$RuntimeRouting.primary.model
+if ([string]::IsNullOrWhiteSpace($PrimaryModel)) {
+    throw "No verified $SelectedHarness coordination model was recorded for Lenka."
 }
-$OpenCodeExe = Join-Path $NpmPrefix "node_modules\opencode-ai\bin\opencode.exe"
-if (-not (Test-Path -LiteralPath $OpenCodeExe -PathType Leaf)) {
-    if ($OpenCodeCommand.Source.EndsWith(".exe", [System.StringComparison]::OrdinalIgnoreCase)) {
-        $OpenCodeExe = $OpenCodeCommand.Source
-    } else {
+$HarnessBinary = $SelectedCommand.Source
+if ($SelectedHarness -eq "opencode") {
+    $NativeOpenCode = Join-Path $NpmPrefix "node_modules\opencode-ai\bin\opencode.exe"
+    if (Test-Path -LiteralPath $NativeOpenCode -PathType Leaf) {
+        $HarnessBinary = $NativeOpenCode
+    } elseif (-not $SelectedCommand.Source.EndsWith(".exe", [System.StringComparison]::OrdinalIgnoreCase)) {
         $GlobalNpmRoot = (& npm.cmd root --global).Trim()
         $GlobalNpmOpenCode = Join-Path $GlobalNpmRoot "opencode-ai\bin\opencode.exe"
         if (Test-Path -LiteralPath $GlobalNpmOpenCode -PathType Leaf) {
-            $OpenCodeExe = $GlobalNpmOpenCode
+            $HarnessBinary = $GlobalNpmOpenCode
         } else {
             throw "Could not resolve the native OpenCode executable required by Herdr."
         }
     }
 }
-$env:AGENT_ORCHESTRA_HARNESS = "opencode"
-$env:AGENT_ORCHESTRA_HARNESS_BINARY = $OpenCodeExe
-$env:AGENT_ORCHESTRA_PRIMARY_MODEL = $OpenCodePrimaryModel
+$env:AGENT_ORCHESTRA_HARNESS = $SelectedHarness
+$env:AGENT_ORCHESTRA_HARNESS_BINARY = $HarnessBinary
+$env:AGENT_ORCHESTRA_PRIMARY_MODEL = $PrimaryModel
+$ReasoningProperty = $RuntimeRouting.primary.PSObject.Properties["reasoningEffort"]
+$env:AGENT_ORCHESTRA_REASONING_EFFORT = if ($null -ne $ReasoningProperty) { [string]$ReasoningProperty.Value } else { "" }
 if ($HerdrEnabled) {
+    if (-not $HarnessBinary.EndsWith(".exe", [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "$SelectedHarness is available only through a command shim. Use lenka up $SelectedHarness --direct on Windows."
+    }
     $SessionName = & $Node (Join-Path $RepoDir "session-name.mjs") $LaunchDir
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($SessionName)) {
         throw "Could not derive the project Herdr session name."
@@ -227,17 +261,17 @@ if ($HerdrEnabled) {
         (Join-Path $RepoDir "herdr-starter.mjs"),
         "--herdr", $HerdrExe,
         "--session", $SessionName,
-        "--harness", "opencode",
-        "--binary", $OpenCodeExe,
+        "--harness", $SelectedHarness,
+        "--binary", $HarnessBinary,
         "--project", $LaunchDir,
-        "--model", $OpenCodePrimaryModel,
-        "--reasoning", "",
+        "--model", $PrimaryModel,
+        "--reasoning", $env:AGENT_ORCHESTRA_REASONING_EFFORT,
         "--log", $StarterLog
     )
     $env:HERDR_SESSION = $SessionName
     Start-Process -FilePath $Node -ArgumentList $StarterArgs -WindowStyle Hidden
     & $HerdrExe --session $SessionName
 } else {
-    Write-Step "Opening Lenka directly in OpenCode"
+    Write-Step "Opening Lenka directly in $SelectedHarness"
     & $Node (Join-Path $RepoDir "harness-launcher.mjs")
 }

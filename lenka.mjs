@@ -9,19 +9,33 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { herdrSessionName } from './session-name.mjs';
 import { launcherArgs } from './harness-launcher.mjs';
-import { launchInSolo } from './solo-workspace.mjs';
+import { findSoloCli, launchInSolo } from './solo-workspace.mjs';
+import {
+  commandForHarness,
+  connectTaskavel,
+  harnessOrder,
+  inspectHarnesses,
+  loadPreferences,
+  missingHarnessMessage,
+  recommendHarness,
+  savePreferences,
+  signInArgs,
+  workspaceChoices,
+} from './onboarding.mjs';
 
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
-const harnesses = ['auto', 'codex', 'claude', 'kimi', 'opencode'];
+const harnesses = ['auto', ...harnessOrder];
 
 function usage() {
   console.log(`Lenka — your agent orchestra
 
 Usage:
-  lenka up [solo] [auto|codex|claude|kimi|opencode] [options]
+  lenka setup
+  lenka up [solo] [auto|cursor|codex|claude|kimi|opencode] [options]
+  lenka connect taskavel [cursor|codex|claude|opencode]
   lenka status [--project PATH]
   lenka report last [--project PATH]
-  lenka doctor [codex|claude|kimi|opencode] [--project PATH]
+  lenka doctor [cursor|codex|claude|kimi|opencode] [--project PATH]
 
 Options:
   --project PATH       Project to open (default: current directory)
@@ -37,6 +51,7 @@ Examples:
   lenka up
   lenka up solo
   lenka up solo codex
+  lenka up cursor
   lenka up codex
   lenka up kimi
   lenka up opencode
@@ -57,16 +72,19 @@ function parse(input) {
   let ask = false;
   let herdr = true;
   let workspace = 'herdr';
+  let workspaceExplicit = false;
+  let harnessExplicit = false;
   let noLaunch = false;
   let conflict = 'backup';
   let reportTarget = null;
-  if (command === 'report' && args[0] && !args[0].startsWith('-')) reportTarget = args.shift();
+  if (['report', 'connect'].includes(command) && args[0] && !args[0].startsWith('-')) reportTarget = args.shift();
   while (args.length) {
     const arg = args.shift();
-    if (harnesses.includes(arg) && !harness) harness = arg;
+    if (harnesses.includes(arg) && !harness) { harness = arg; harnessExplicit = true; }
     else if (arg === 'solo' || arg === '--solo') {
       workspace = 'solo';
       herdr = false;
+      workspaceExplicit = true;
     }
     else if (arg === '--project') {
       const value = args.shift();
@@ -76,9 +94,11 @@ function parse(input) {
     else if (arg === '--herdr') {
       workspace = 'herdr';
       herdr = true;
+      workspaceExplicit = true;
     } else if (arg === '--direct') {
       workspace = 'direct';
       herdr = false;
+      workspaceExplicit = true;
     }
     else if (arg === '--no-launch') noLaunch = true;
     else if (arg === '--conflict') {
@@ -87,7 +107,7 @@ function parse(input) {
     } else if (arg === '--help' || arg === '-h') return { command: 'help' };
     else throw new Error(`unknown argument: ${arg}`);
   }
-  return { command, harness, project, ask, herdr, workspace, noLaunch, conflict, reportTarget };
+  return { command, harness, harnessExplicit, project, ask, herdr, workspace, workspaceExplicit, noLaunch, conflict, reportTarget };
 }
 
 function homeDirectory() {
@@ -140,10 +160,13 @@ function selectInstalledRuntime(project, requested = 'auto', home = homeDirector
   for (const manifest of [...projectManifests, ...globalManifests]) {
     if (manifest?.harness && !byHarness.has(manifest.harness)) byHarness.set(manifest.harness, manifest);
   }
-  const candidates = requested === 'auto' ? harnesses.slice(1) : [requested];
+  const preferences = loadPreferences(home);
+  const candidates = requested === 'auto'
+    ? [...new Set([preferences?.harness, ...harnesses.slice(1)].filter(Boolean))]
+    : [requested];
   for (const harness of candidates) {
     const manifest = byHarness.get(harness);
-    const binary = locate(harness);
+    const binary = locate(commandForHarness(harness));
     if (manifest?.primary?.model && binary) return { harness, manifest, binary };
   }
   return null;
@@ -155,17 +178,102 @@ async function chooseHarness() {
   try {
     console.log('\nChoose the conductor harness:');
     console.log('  1. Auto-detect (recommended)');
-    console.log('  2. Codex');
-    console.log('  3. Claude Code');
-    console.log('  4. Kimi Code');
-    console.log('  5. OpenCode');
+    console.log('  2. Cursor Agent');
+    console.log('  3. Codex');
+    console.log('  4. Claude Code');
+    console.log('  5. Kimi Code');
+    console.log('  6. OpenCode');
     const answer = (await prompt.question('\nSelection [1]: ')).trim() || '1';
-    const selected = { 1: 'auto', 2: 'codex', 3: 'claude', 4: 'kimi', 5: 'opencode' }[answer];
-    if (!selected) throw new Error('selection must be 1, 2, 3, 4, or 5');
+    const selected = { 1: 'auto', 2: 'cursor', 3: 'codex', 4: 'claude', 5: 'kimi', 6: 'opencode' }[answer];
+    if (!selected) throw new Error('selection must be 1, 2, 3, 4, 5, or 6');
     return selected;
   } finally {
     prompt.close();
   }
+}
+
+function runCaptured(command, args, cwd = process.cwd()) {
+  return spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 15000 });
+}
+
+function runInteractive(command, args, cwd = process.cwd()) {
+  const result = spawnSync(command, args, { cwd, stdio: 'inherit' });
+  if (result.error) throw result.error;
+  return result.status ?? 1;
+}
+
+async function setup(options) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('lenka setup requires an interactive terminal');
+  const home = homeDirectory();
+  const existing = loadPreferences(home);
+  const statuses = inspectHarnesses(executable, runCaptured, options.project);
+  const verified = [...new Set(manifests(options.project, true).filter((item) => item?.primary?.model).map((item) => item.harness))];
+  const recommended = recommendHarness(statuses, existing, verified);
+  console.log('\nLenka setup');
+  console.log('Harness and workspace are separate choices. You can change either later.\n');
+  for (const status of statuses) {
+    const verifiedHere = verified.includes(status.harness);
+    const state = verifiedHere ? 'verified model route' : status.evidence;
+    console.log(`- ${status.harness}: ${state}`);
+  }
+  const choices = statuses.filter((status) => status.installed).map((status) => status.harness);
+  if (!choices.length) throw new Error('No supported AI CLI is installed. Install Cursor, Codex, Claude Code, Kimi Code, or OpenCode first.');
+  const prompt = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    console.log('\nChoose the AI harness:');
+    choices.forEach((name, index) => console.log(`  ${index + 1}. ${name}${name === recommended ? ' (recommended)' : ''}`));
+    const defaultIndex = Math.max(0, choices.indexOf(recommended)) + 1;
+    const harnessAnswer = (await prompt.question(`Selection [${defaultIndex}]: `)).trim() || String(defaultIndex);
+    const harness = choices[Number(harnessAnswer) - 1];
+    if (!harness) throw new Error('invalid harness selection');
+    const selectedStatus = statuses.find((status) => status.harness === harness);
+    if (selectedStatus?.authenticated === false && !verified.includes(harness)) {
+      const loginAnswer = (await prompt.question(`${harness} is not signed in. Open its login now? [Y/n]: `)).trim().toLowerCase();
+      if (!['n', 'no'].includes(loginAnswer)) {
+        const loginArgs = signInArgs(harness);
+        const loginStatus = runInteractive(selectedStatus.binary, loginArgs, options.project);
+        if (loginStatus !== 0) throw new Error(`${harness} login did not complete`);
+      }
+    }
+
+    const workspaces = workspaceChoices({
+      platform: process.platform,
+      soloInstalled: Boolean(findSoloCli(executable, { platform: process.platform, home, environment: process.env })),
+      herdrInstalled: Boolean(executable('herdr')),
+    });
+    console.log('\nChoose where Lenka opens:');
+    workspaces.forEach((item, index) => console.log(`  ${index + 1}. ${item.id} — ${item.reason}`));
+    const workspaceDefault = existing?.workspace ? workspaces.findIndex((item) => item.id === existing.workspace) + 1 : 2;
+    const workspaceAnswer = (await prompt.question(`Selection [${workspaceDefault > 0 ? workspaceDefault : 2}]: `)).trim() || String(workspaceDefault > 0 ? workspaceDefault : 2);
+    const workspace = workspaces[Number(workspaceAnswer) - 1];
+    if (!workspace) throw new Error('invalid workspace selection');
+    if (workspace.id === 'solo' && !workspace.available) throw new Error(`Solo is unavailable: ${workspace.reason}. Install it from https://soloterm.com or choose Herdr/direct.`);
+
+    const taskavelAnswer = (await prompt.question('\nConnect Taskavel now? [y/N]: ')).trim().toLowerCase();
+    const wantsTaskavel = ['y', 'yes'].includes(taskavelAnswer);
+    const target = savePreferences({ harness, workspace: workspace.id, taskavel: wantsTaskavel ? 'requested' : 'later' }, home);
+    console.log(`\nSaved preferences: ${target}`);
+    if (wantsTaskavel) {
+      const result = connectTaskavel(harness, { home, locate: executable, run: runInteractive, capture: runCaptured, cwd: options.project });
+      console.log(result.verification);
+    }
+    console.log(`\nReady. Run: lenka up`);
+    console.log(`Override any time: lenka up ${harness} --direct`);
+    return 0;
+  } finally {
+    prompt.close();
+  }
+}
+
+function connect(options) {
+  const target = options.reportTarget;
+  if (target !== 'taskavel') throw new Error('connect currently supports only: lenka connect taskavel [harness]');
+  const preferences = loadPreferences(homeDirectory());
+  const harness = options.harness || preferences?.harness;
+  if (!harness || harness === 'auto') throw new Error('choose a harness: lenka connect taskavel cursor|codex|claude|opencode');
+  const result = connectTaskavel(harness, { home: homeDirectory(), locate: executable, run: runInteractive, capture: runCaptured, cwd: options.project });
+  console.log(result.verification);
+  return result.configured ? 0 : 1;
 }
 
 function run(command, args, options = {}) {
@@ -243,7 +351,13 @@ async function up(options) {
   if (!fs.existsSync(options.project) || !fs.statSync(options.project).isDirectory()) {
     throw new Error(`project directory does not exist: ${options.project}`);
   }
-  const harness = options.ask ? await chooseHarness() : (options.harness || 'auto');
+  const preferences = loadPreferences(homeDirectory());
+  if (!options.workspaceExplicit && preferences?.workspace) {
+    options.workspace = preferences.workspace;
+    options.herdr = preferences.workspace === 'herdr';
+  }
+  const harness = options.ask ? await chooseHarness() : (options.harness || preferences?.harness || 'auto');
+  if (harness !== 'auto' && !executable(commandForHarness(harness))) throw new Error(missingHarnessMessage(harness));
   const installed = selectInstalledRuntime(options.project, harness);
   if (installed) {
     const launched = launchInstalledRuntime(installed, options);
@@ -254,10 +368,7 @@ async function up(options) {
   console.log(`Project: ${options.project}`);
   console.log(`Harness: ${harness === 'auto' ? 'auto-detect' : harness}`);
   if (process.platform === 'win32') {
-    if (!['auto', 'opencode'].includes(harness)) {
-      throw new Error('Windows currently supports lenka up with OpenCode only');
-    }
-    const windows = ['-Project', options.project, '-ProjectOnly', '-Conflict', options.conflict];
+    const windows = ['-Project', options.project, '-ProjectOnly', '-Conflict', options.conflict, '-Harness', harness];
     if (options.noLaunch || options.workspace === 'solo') windows.push('-NoLaunch');
     if (options.workspace === 'herdr') windows.push('-UseHerdr');
     const installedStatus = run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repoRoot, 'bootstrap.ps1'), ...windows]);
@@ -301,7 +412,7 @@ function doctor(options) {
   const installed = manifests(options.project);
   const candidates = installed.map((manifest) => manifest.harness).filter((name) => name && name !== 'auto');
   const harness = options.harness || (candidates.length === 1 ? candidates[0] : null);
-  if (!harness) throw new Error('choose a harness: lenka doctor codex|claude|kimi|opencode');
+  if (!harness) throw new Error('choose a harness: lenka doctor cursor|codex|claude|kimi|opencode');
   return run(process.execPath, [path.join(repoRoot, 'orchestra.mjs'), 'doctor', '--tool', harness, '--project', options.project, '--project-only', '--installed']);
 }
 
@@ -410,7 +521,9 @@ async function main(argv = process.argv.slice(2)) {
     usage();
     return 0;
   }
+  if (options.command === 'setup') return setup(options);
   if (options.command === 'up') return up(options);
+  if (options.command === 'connect') return connect(options);
   if (options.command === 'status') return status(options);
   if (options.command === 'report') return report(options);
   if (options.command === 'doctor') return doctor(options);
@@ -427,4 +540,4 @@ if (invokedFile === fileURLToPath(import.meta.url)) {
   }
 }
 
-export { main, manifests, parse, selectInstalledRuntime, shouldOpenHerdr };
+export { main, manifests, parse, selectInstalledRuntime, setup, shouldOpenHerdr };

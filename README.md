@@ -8,8 +8,8 @@ machine, grant the least permissions required, and demand evidence before work
 is called complete.
 
 It is not a hosted service, a model subscription, or a token broker. It is a
-public skeleton you own and adapt. `lenka up` opens a stable Herdr workspace and
-launches Codex, Claude Code, Kimi Code, or OpenCode inside it. Use `--direct`
+public skeleton you own and adapt. `lenka up` opens the saved workspace and
+launches Cursor Agent, Codex, Claude Code, Kimi Code, or OpenCode inside it. Use `--direct`
 when you want the selected CLI without Herdr.
 
 > Development is the art of turning intent into verified behavior.
@@ -37,7 +37,8 @@ Orkestar deliberately chooses constraints over agent theatre:
   security boundaries, not a fixed workforce the human has to assemble.
 - **Band teams** — domain teams with their own flow:
   - `dev` — dev-lead, dev-planner, dev-ticketer, dev-dag, dev-builder,
-    dev-tester, dev-auditor (plan → Taskavel tickets → DAG → build → prove)
+    product-designer, dev-tester, dev-auditor (design when needed → plan →
+    Taskavel tickets → DAG → build → prove)
   - more teams (email, travel, finance...) follow the same template
 - **Shared skills** — resend, email best practices, DNS, crash diagnosis, ...
   installed to the portable `~/.agents/skills` source location.
@@ -46,7 +47,8 @@ Orkestar deliberately chooses constraints over agent theatre:
 
 The bootstrap detects the platform, installs an isolated Node.js runtime when
 needed, detects an authenticated harness, installs the team, verifies a real
-model response, installs Herdr, and opens Lenka in a project-specific workspace.
+model response, and installs Herdr. The friendly `lenka setup` wizard then
+saves separate choices for the AI harness, workspace, and optional Taskavel login.
 It does not depend on Homebrew, Laravel Herd, a particular username, or a
 machine-specific project directory.
 
@@ -90,6 +92,7 @@ macOS or Linux:
 
 ```sh
 cd /path/to/project
+"$HOME/.local/bin/lenka" setup
 "$HOME/.local/bin/lenka" up
 ```
 
@@ -97,6 +100,7 @@ Windows PowerShell:
 
 ```powershell
 Set-Location C:\path\to\project
+& "$HOME\.local\lenka.cmd" setup
 & "$HOME\.local\lenka.cmd" up
 ```
 
@@ -105,7 +109,9 @@ command into the user's local executable directory. When that directory is on
 `PATH`, the shorter commands are available from any project:
 
 ```sh
+lenka setup
 lenka up
+lenka up cursor
 lenka up solo
 lenka up solo codex
 lenka up codex
@@ -116,9 +122,16 @@ lenka up codex --direct
 lenka up --ask
 lenka status
 lenka doctor
+lenka connect taskavel
 ```
 
-`lenka up` auto-detects an authenticated harness. An explicit harness keeps
+`lenka setup` detects installed CLIs, their login state where the CLI exposes
+it, and existing live-verified runtime manifests. A previous valid preference
+is recommended. If several services are valid, the wizard asks once instead of
+guessing which subscription the user wants to spend. Preferences contain no
+credentials and live at `~/.agent-orchestra/preferences.json`.
+
+`lenka up` reuses that saved harness and workspace. An explicit harness keeps
 all routing inside that service. The conductor uses the verified `mid`
 coordination model; one-run workers independently use economy, mid, or
 strongest routes according to their capability profile. Each absolute project
@@ -148,6 +161,9 @@ and todos mirror active Taskavel work for process ownership, blockers, locks,
 and handoffs. Every mirrored todo includes the full Taskavel task URL. If a
 public user has no Taskavel access, Solo todos are an explicitly unsynced local
 fallback and the tracker adapter can be replaced in `orchestra.json`.
+The setup wizard can start the selected harness's native browser authorization.
+OAuth still requires the user to approve the Taskavel connection; Orkestar does
+not copy or inspect tokens. `lenka connect taskavel` repeats that step later.
 
 Codex launches are deterministic in both dimensions: the verified model and
 the reasoning effort are pinned by the orchestra. Coordination, planning, and
@@ -157,14 +173,14 @@ turn an ordinary run into a high-reasoning run.
 
 Autonomy is translated by the selected adapter rather than hard-coded as a
 Codex policy: Codex uses workspace-write with automatic review, Claude Code
-uses its automatic permission mode, and Kimi Code and OpenCode use their own
+uses its automatic permission mode, Cursor uses its project-write automatic
+mode with MCP approval, and Kimi Code and OpenCode use their own
 automatic modes. The shared Orkestar rules still deny destructive actions and
 unrequested external effects.
 
-Native Windows currently supports `lenka up` through OpenCode. Codex and
-Claude selection through the Lenka command is implemented for macOS and Linux;
-their complete orchestration behavior proof remains pending. Windows
-multi-harness selection remains a later portability phase.
+Native Windows currently has a complete OpenCode bootstrap. The shared Lenka
+CLI and Cursor adapter are platform-neutral, but authenticated Windows proofs
+for Cursor, Codex, Claude Code, and Kimi Code remain pending.
 
 The automated Linux matrix covers Ubuntu and a clean Arch Linux container.
 Arch is the closest reproducible base for Omarchy, but it is not a substitute
@@ -179,9 +195,9 @@ before Orkestar replaces them. Use `--conflict fail` on macOS/Linux or
 without a write. The lower-level `orchestra.mjs install` command also defaults
 to `fail` for manual inspection and controlled integration.
 
-Credentials are never copied between tools. In automatic mode the Unix
-bootstrap tries Codex with an existing ChatGPT sign-in, then Claude Code with
-Haiku as its economical first route, then Kimi Code, then OpenCode. A harness
+Credentials are never copied between tools. The wizard owns the durable choice.
+During a bootstrap without preferences, Unix tries Cursor, Codex, Claude Code,
+Kimi Code, then OpenCode only as a discovery fallback. A harness
 is selected only after a minimal live response succeeds. If none works,
 verification stops and asks the user to sign in; it never claims READY from a
 model list alone.
@@ -292,8 +308,9 @@ they must not borrow OpenCode numbers or display zero as if it meant no usage.
 Codex and Claude Code have authenticated adapter proofs; their complete
 PLAN → BUILD → VERIFY → PROVE behavior proofs are still pending. OpenCode is
 the original adapter. Kimi Code has an authenticated direct-adapter proof; its
-complete behavior proof is still pending. Cursor remains experimental and
-requires `--experimental`.
+complete behavior proof is still pending. Cursor's official agent format, CLI
+invocation, model inventory, and Taskavel OAuth adapter are implemented; an
+authenticated Cursor behavior proof remains pending.
 
 | Tool | Status | Agents (global) | Teams (explicit project install) | Persona |
 |---|---|---|---|---|
@@ -301,7 +318,7 @@ requires `--experimental`.
 | Claude Code | Authenticated adapter; full behavior proof pending | `~/.claude/agents/*.md` | `.claude/agents/` | `~/.claude/CLAUDE.md` |
 | Codex | Authenticated adapter; full behavior proof pending | `~/.codex/agents/*.toml` | `.codex/agents/` | `~/.codex/AGENTS.md` |
 | Kimi Code | Authenticated direct adapter; full behavior proof pending | `~/.kimi-code/agents/*.md` | `.kimi-code/agents/` | `~/.kimi-code/AGENTS.md` |
-| Cursor | Experimental | `~/.cursor/agents/*.md` | `.cursor/agents/` | `~/.cursor/rules/lenka.mdc` |
+| Cursor | Adapter implemented; authenticated proof pending | `~/.cursor/agents/*.md` | `.cursor/agents/` | `~/.cursor/rules/lenka.mdc` |
 
 Shared skills are installed into `~/.agents/skills`. Project files are never
 written merely because the installer was launched from that directory.

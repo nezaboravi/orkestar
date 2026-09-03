@@ -52,7 +52,7 @@ const TOOLS = [
   { id: 'opencode', cmd: 'opencode', hasAgents: true, global: path.join(home, '.config', 'opencode') },
   { id: 'claude', cmd: 'claude', hasAgents: true, global: path.join(home, '.claude') },
   { id: 'codex', cmd: 'codex', hasAgents: true, global: path.join(home, '.codex') },
-  { id: 'cursor', cmd: 'cursor', hasAgents: true, global: path.join(home, '.cursor') },
+  { id: 'cursor', cmd: 'agent', hasAgents: true, global: path.join(home, '.cursor') },
   { id: 'kimi', cmd: 'kimi', hasAgents: false, global: path.join(home, '.kimi') },
   { id: 'gemini', cmd: 'gemini', hasAgents: false, global: path.join(home, '.gemini') },
   { id: 'aider', cmd: 'aider', hasAgents: false, global: path.join(home, '.aider') },

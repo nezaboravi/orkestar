@@ -22,6 +22,8 @@ function launcherArgs(harness, model, cwd = process.cwd(), reasoningEffort = nul
     args.push('--agent-file', path.join(cwd, '.kimi-code', 'agents', 'lenka.md'), '--auto');
   } else if (harness === 'opencode') {
     args.push('--agent', 'lenka', '--auto');
+  } else if (harness === 'cursor') {
+    args.push('--force', '--approve-mcps');
   } else {
     throw new Error(`Unsupported harness: ${harness}`);
   }
@@ -33,7 +35,7 @@ function main() {
   const binary = process.env.AGENT_ORCHESTRA_HARNESS_BINARY;
   const model = process.env.AGENT_ORCHESTRA_PRIMARY_MODEL;
   const reasoningEffort = process.env.AGENT_ORCHESTRA_REASONING_EFFORT || null;
-  if (!['codex', 'claude', 'kimi', 'opencode'].includes(harness) || !binary || !model) {
+  if (!['cursor', 'codex', 'claude', 'kimi', 'opencode'].includes(harness) || !binary || !model) {
     console.error('ERROR: Lenka launcher is missing a verified harness or coordination model.');
     return 1;
   }

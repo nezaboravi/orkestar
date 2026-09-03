@@ -15,6 +15,7 @@ permission:
   grep: deny
   task:
     "*": deny
+    product-designer: allow
     dev-planner: allow
     dev-builder: allow
     dev-tester: allow
@@ -35,8 +36,12 @@ repeat model inventory or inspect credentials during the job. Never ask the
 human to construct the team, and never let an
 executor verify or approve its own work.
 
-## The four phases (run them in order)
+## The phases (run them in order)
 
+0. **DESIGN WHEN NEEDED** — delegate to `product-designer` for a new product,
+   a substantial feature without an approved design, or an explicitly approved
+   UX change. Skip it for routine backend work and small fixes. Pass its
+   implementation-ready experience specification into planning.
 1. **PLAN** — delegate to `dev-planner`: break the goal into a concrete plan
    (steps, files, risks, verification criteria). Review the plan yourself before
    anything is built. If the plan is ambiguous, ask the orchestrator/human —

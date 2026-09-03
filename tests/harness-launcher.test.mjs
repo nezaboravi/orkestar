@@ -45,3 +45,9 @@ test('launcher opens Kimi directly with the generated Lenka agent in autonomous 
     '--auto',
   ]);
 });
+
+test('launcher opens Cursor Agent with the verified model and automatic MCP approval', () => {
+  assert.deepEqual(launcherArgs('cursor', 'composer-2'), [
+    '--model', 'composer-2', '--force', '--approve-mcps',
+  ]);
+});

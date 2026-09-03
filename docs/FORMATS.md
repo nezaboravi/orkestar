@@ -69,11 +69,11 @@ live adapter-specific model. A file name is not a permanent team member.
 - Probe usage: Kimi's text probe does not expose token or cost totals, so the
   doctor reports them as unavailable rather than as zero
 
-## Cursor (experimental)
+## Cursor
 
 - Location: `~/.cursor/agents/*.md` (user), `.cursor/agents/` (project)
-- Format: Markdown describing when to use the agent and its instructions
-  (no strict frontmatter schema); rules in `.cursor/rules/*.mdc` with
+- Format: Markdown with `name`, `description`, and `model: inherit`
+  frontmatter; rules in `.cursor/rules/*.mdc` with
   `alwaysApply`; skills auto-discovered from `.cursor/skills/`,
   `~/.agents/skills/`, `.claude/skills/`, `.codex/skills/`
 
