@@ -91,8 +91,12 @@ test('Cursor Taskavel setup trusts Cursor inventory before parsing its configura
 });
 
 test('optional Taskavel failure never blocks the selected workspace launch', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cursor-taskavel-invalid-'));
+  const directory = path.join(home, '.cursor');
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, 'mcp.json'), '{not valid JSON');
   const result = connectOptionalTaskavel('cursor', {
-    home: '/unused',
+    home,
     locate: () => '/bin/agent',
     capture: () => ({ status: 0, stdout: '', stderr: '' }),
     run: () => 0,
