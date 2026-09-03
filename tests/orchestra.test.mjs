@@ -90,7 +90,7 @@ test('Cursor conversion uses official subagent frontmatter and inherits the veri
 });
 
 test('Lenka invokes product design only through the development lead when it is needed', () => {
-  const lenka = fs.readFileSync(path.join(repoRoot, 'agents', 'lenka.md'), 'utf8');
+  const lenka = fs.readFileSync(path.join(repoRoot, 'agents', 'lenka.md'), 'utf8').replace(/\r\n/g, '\n');
   const config = JSON.parse(fs.readFileSync(path.join(repoRoot, 'orchestra.json'), 'utf8'));
   const designPhase = config.team.workflow.find((step) => step.phase === 'design');
 
