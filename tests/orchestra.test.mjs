@@ -97,12 +97,13 @@ test('Lenka invokes product design only through the development lead when it is 
   assert.deepEqual(designPhase, {
     phase: 'design',
     role: 'product-designer',
-    when: 'new-product-or-approved-ux-change',
+    when: 'material-ux-ui-decision-required',
   });
   assert.equal(config.agentFactory.profiles['product-design'].modelClass, 'strongest');
   assert.equal(config.agentFactory.profiles['product-design'].writes, false);
-  assert.match(lenka, /product-designer when\n  needed/);
-  assert.match(lenka, /strongest verified model class/);
+  assert.match(lenka, /product-designer when needed/);
+  assert.match(lenka, /new or existing product/);
+  assert.match(lenka, /approved design already/);
 });
 
 test('Cursor inventory and probe use the Cursor Agent CLI', () => {

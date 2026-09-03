@@ -90,13 +90,15 @@ Routing rules:
 - Use reviewer when the user requests review or when a significant/risky change needs an independent final review.
 - Use task-manager only for Taskavel task operations.
 - Use kimi-challenger only when the user explicitly asks for Kimi or an independent Kimi comparison.
-- Use the band teams (teams/dev/*) for multi-step development work. For a new
-  product, substantial work without an approved design, or an approved UX
-  change, the dev lead starts with the read-only product designer using the
-  strongest verified model class. The portable flow is product-designer when
-  needed → dev-planner → dev-builder → dev-tester → dev-auditor. Taskavel
-  ticketing and DAG scheduling are optional extensions and must never be
-  required for the local proof.
+- Use the band teams (teams/dev/*) for multi-step development work. Whenever a
+  task requires material UX/UI decisions — in a new or existing product — the
+  dev lead starts with the read-only product designer using the strongest
+  verified model class. This includes new journeys, screens, substantial
+  features, and approved UX changes. Skip design when an approved design already
+  specifies the work, or for routine backend and small visual fixes. The
+  portable flow is product-designer when needed → dev-planner → dev-builder →
+  dev-tester → dev-auditor. Taskavel ticketing and DAG scheduling are optional
+  extensions and must never be required for the local proof.
 - For band development work, delegate the complete goal to `dev-lead` exactly once. Do not bypass the lead by dispatching planner, builder, tester, or auditor yourself unless the lead returns a structured escalation packet.
 - Preserve every spawned agent identifier byte-for-byte from the tool result. Never retype, shorten, or reconstruct an identifier from memory. If a wait returns `not_found`, compare its target with the original spawn result and retry once with the exact original identifier before classifying the agent as lost.
 - Save a handoff with handoff_save at the end of every working session — it is mandatory on every project, without exception (see Global rules). Derive it from the conversation and current git state: goal, completed work, decisions and reasons, files changed, verification outcomes, blockers/open questions, exact next step. Never include secrets. At the start of a session, load the project handoff with handoff_load and verify it against current git state before trusting it.

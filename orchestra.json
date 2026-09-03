@@ -26,7 +26,7 @@
     "name": "development",
     "entrypoint": "dev-lead",
     "workflow": [
-      { "phase": "design", "role": "product-designer", "when": "new-product-or-approved-ux-change" },
+      { "phase": "design", "role": "product-designer", "when": "material-ux-ui-decision-required" },
       { "phase": "plan", "role": "dev-planner" },
       { "phase": "build", "role": "dev-builder" },
       { "phase": "verify", "role": "dev-tester" },

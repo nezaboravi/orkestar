@@ -43,6 +43,11 @@ Orkestar deliberately chooses constraints over agent theatre:
 - **Shared skills** — resend, email best practices, DNS, crash diagnosis, ...
   installed to the portable `~/.agents/skills` source location.
 
+The product designer is not limited to greenfield work. Lenka invokes it for
+any material UX/UI decision in a new or existing product, then passes its
+read-only specification into planning. It is skipped when an approved design
+already defines the work, and for routine backend or small visual fixes.
+
 ## Install on any computer
 
 The bootstrap detects the platform, installs an isolated Node.js runtime when
