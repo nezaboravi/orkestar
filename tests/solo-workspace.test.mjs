@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { ensureCursorWorkspaceTrusted, ensureSoloReady, launchInSolo, openSolo, selectAgentTool, verifySoloStartup } from '../solo-workspace.mjs';
+import { ensureCursorWorkspaceTrusted, ensureSoloReady, launchInSolo, matchesSoloRuntime, openSolo, selectAgentTool, soloProcessName, verifySoloStartup } from '../solo-workspace.mjs';
 
 test('Solo selects the enabled tool matching the verified harness', () => {
   assert.equal(selectAgentTool([
@@ -30,6 +30,7 @@ test('Solo launch imports the project and passes adapter-native arguments', () =
     { ready: true },
     { projects: [] },
     { project: { id: 42, name: 'demo', path: canonicalProject } },
+    { processes: [] },
     { agentTools: [{ id: 7, name: 'Codex', toolType: 'codex', enabled: true }] },
     { process: { id: 99, kind: 'agent' } },
   ];
@@ -49,12 +50,86 @@ test('Solo launch imports the project and passes adapter-native arguments', () =
 
   assert.equal(result.process.id, 99);
   assert.deepEqual(calls[2].args, ['projects', 'create', path.basename(canonicalProject), canonicalProject]);
-  assert.deepEqual(calls[4].args, [
+  assert.deepEqual(calls[5].args, [
     'processes', 'spawn', '--project-id', '42', '--kind', 'agent',
-    '--agent-tool-id', '7', '--name', 'Lenka — Orkestar',
+    '--agent-tool-id', '7', '--name', 'Lenka — Codex',
     '--arg', '--model', '--arg', 'gpt-example', '--arg', '--approve-for-me',
   ]);
   assert.deepEqual(opened, [42]);
+});
+
+test('Solo process names identify the selected AI service', () => {
+  assert.equal(soloProcessName('cursor'), 'Lenka — Cursor Agent');
+  assert.equal(soloProcessName('codex'), 'Lenka — Codex');
+});
+
+test('Solo reuses an already running matching Lenka process', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'orkestar-solo-reuse-'));
+  const opened = [];
+  const calls = [];
+  const responses = [
+    { ready: true },
+    { projects: [{ id: 42, name: 'demo', path: project }] },
+    { processes: [{ id: 99, name: 'Lenka — Cursor Agent', kind: 'agent', command: '/verified/agent --model auto --force', status: 'running' }] },
+  ];
+  const runtime = { harness: 'cursor', binary: '/verified/agent', manifest: { primary: { model: 'auto' } } };
+  const result = launchInSolo(runtime, { project }, {
+    binary: '/verified/solo',
+    openSolo: (projectId) => { opened.push(projectId); return true; },
+    ensureCursorTrust: () => ({ reused: true }),
+    launcherArgs: () => ['--model', 'auto'],
+    invoke(binary, args) {
+      calls.push(args);
+      return { status: 0, stdout: JSON.stringify({ ok: true, data: responses.shift() }), stderr: '' };
+    },
+  });
+  assert.equal(result.process.id, 99);
+  assert.equal(result.reused, true);
+  assert.deepEqual(opened, [42]);
+  assert.equal(calls.some((args) => args.includes('spawn')), false);
+});
+
+test('Solo renames and restarts the newest stopped legacy Lenka process', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'orkestar-solo-restart-'));
+  const calls = [];
+  const responses = [
+    { ready: true },
+    { projects: [{ id: 42, name: 'demo', path: project }] },
+    { processes: [{ id: 99, name: 'Lenka — Orkestar', kind: 'agent', command: '/verified/agent --model auto --force', status: 'stopped' }] },
+    { process: { id: 99, name: 'Lenka — Cursor Agent', status: 'stopped' } },
+    { process: { id: 99, status: 'starting' } },
+  ];
+  const runtime = { harness: 'cursor', binary: '/verified/agent', manifest: { primary: { model: 'auto' } } };
+  const result = launchInSolo(runtime, { project }, {
+    binary: '/verified/solo',
+    openSolo: () => true,
+    ensureCursorTrust: () => ({ reused: true }),
+    launcherArgs: () => ['--model', 'auto'],
+    verifyStartup: () => ({ id: 99, status: 'running' }),
+    invoke(binary, args) {
+      calls.push(args);
+      return { status: 0, stdout: JSON.stringify({ ok: true, data: responses.shift() }), stderr: '' };
+    },
+  });
+  assert.equal(result.process.id, 99);
+  assert.equal(result.process.name, 'Lenka — Cursor Agent');
+  assert.equal(result.reused, true);
+  assert.deepEqual(calls[3], ['processes', 'rename', '99', 'Lenka — Cursor Agent']);
+  assert.deepEqual(calls[4], ['processes', 'start', '99']);
+  assert.equal(calls.some((args) => args.includes('spawn')), false);
+});
+
+test('Solo runtime matching requires the same harness name, binary, and model', () => {
+  const runtime = { harness: 'cursor', binary: '/verified/agent', manifest: { primary: { model: 'auto' } } };
+  assert.equal(matchesSoloRuntime({
+    kind: 'agent', name: 'Lenka — Cursor Agent', command: '/verified/agent --model auto',
+  }, runtime), true);
+  assert.equal(matchesSoloRuntime({
+    kind: 'agent', name: 'Lenka — Codex', command: '/verified/agent --model auto',
+  }, runtime), false);
+  assert.equal(matchesSoloRuntime({
+    kind: 'agent', name: 'Lenka — Orkestar', command: '/verified/agent --model auto',
+  }, runtime), true);
 });
 
 test('Solo launch fails clearly when the selected harness is unavailable', () => {
@@ -62,6 +137,7 @@ test('Solo launch fails clearly when the selected harness is unavailable', () =>
   const responses = [
     { ready: true },
     { projects: [{ id: 1, path: project }] },
+    { processes: [] },
     { agentTools: [{ id: 2, toolType: 'claude', enabled: true }] },
   ];
   assert.throws(() => launchInSolo({

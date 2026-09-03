@@ -67,6 +67,34 @@ function selectAgentTool(agentTools, harness) {
   return null;
 }
 
+function soloProcessName(harness) {
+  const labels = {
+    cursor: 'Cursor Agent',
+    codex: 'Codex',
+    claude: 'Claude Code',
+    kimi: 'Kimi Code',
+    opencode: 'OpenCode',
+  };
+  return `Lenka — ${labels[harness] || harness}`;
+}
+
+function matchesSoloRuntime(processEntry, runtime, name = soloProcessName(runtime.harness)) {
+  const command = String(processEntry.command || '');
+  const model = String(runtime.manifest.primary.model || '');
+  return processEntry.kind === 'agent'
+    && [name, 'Lenka — Orkestar'].includes(processEntry.name)
+    && command.includes(runtime.binary)
+    && (!model || command.includes(`--model ${model}`));
+}
+
+function renameSoloProcess(binary, processEntry, name, projectPath, invoke) {
+  if (processEntry.name === name) return processEntry;
+  const renamed = decodeSoloJson(invoke(binary, [
+    'processes', 'rename', String(processEntry.id), name,
+  ], projectPath), 'Solo process rename');
+  return { ...processEntry, ...(renamed.process || renamed), name };
+}
+
 function pause(milliseconds) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
@@ -180,13 +208,44 @@ function launchInSolo(runtime, options, dependencies = {}) {
     project = created.project;
   }
 
+  const processName = soloProcessName(runtime.harness);
+  let existingProcesses = [];
+  try {
+    existingProcesses = decodeSoloJson(invoke(binary, [
+      'processes', 'list', '--project-id', String(project.id),
+    ], projectPath), 'Solo process list').processes || [];
+  } catch {
+    // Older Solo builds may not expose process inventory; spawning still works.
+  }
+  const matchingProcesses = existingProcesses
+    .filter((entry) => matchesSoloRuntime(entry, runtime, processName))
+    .sort((left, right) => Number(right.id) - Number(left.id));
+  const active = matchingProcesses.find((entry) => ['running', 'starting'].includes(entry.status));
+  if (active) {
+    const named = renameSoloProcess(binary, active, processName, projectPath, invoke);
+    if (!activate(project.id)) throw new Error('Lenka is running in Solo, but Orkestar could not show the Solo project window');
+    return { binary, project, tool: null, process: named, startup: named, reused: true };
+  }
+  const stopped = matchingProcesses.find((entry) => ['stopped', 'exited'].includes(entry.status));
+  if (stopped) {
+    const named = renameSoloProcess(binary, stopped, processName, projectPath, invoke);
+    const started = decodeSoloJson(invoke(binary, [
+      'processes', 'start', String(named.id),
+    ], projectPath), 'Solo agent restart');
+    const processEntry = started.process || started;
+    const verifyStartup = dependencies.verifyStartup || verifySoloStartup;
+    const startup = verifyStartup(binary, project.id, processEntry.id || named.id, projectPath, invoke, dependencies.wait);
+    if (!activate(project.id)) throw new Error('Lenka is running in Solo, but Orkestar could not show the Solo project window');
+    return { binary, project, tool: null, process: { ...named, ...processEntry }, startup, reused: true };
+  }
+
   const agentTools = decodeSoloJson(invoke(binary, ['agents', 'list'], projectPath), 'Solo agent tool list').agentTools || [];
   const tool = selectAgentTool(agentTools, runtime.harness);
   if (!tool) throw new Error(`Solo has no enabled ${runtime.harness} agent tool on this machine`);
 
   const args = [
     'processes', 'spawn', '--project-id', String(project.id), '--kind', 'agent',
-    '--agent-tool-id', String(tool.id), '--name', 'Lenka — Orkestar',
+    '--agent-tool-id', String(tool.id), '--name', processName,
   ];
   for (const arg of dependencies.launcherArgs(runtime.harness, runtime.manifest.primary.model, projectPath, runtime.manifest.primary.reasoningEffort || null)) {
     args.push('--arg', arg);
@@ -196,7 +255,7 @@ function launchInSolo(runtime, options, dependencies = {}) {
   const verifyStartup = dependencies.verifyStartup || verifySoloStartup;
   const startup = verifyStartup(binary, project.id, processEntry.id, projectPath, invoke, dependencies.wait);
   if (!activate(project.id)) throw new Error('Lenka is running in Solo, but Orkestar could not show the Solo project window');
-  return { binary, project, tool, process: processEntry, startup };
+  return { binary, project, tool, process: processEntry, startup, reused: false };
 }
 
-export { bundledSoloCandidates, decodeSoloJson, ensureCursorWorkspaceTrusted, ensureSoloReady, findSoloCli, launchInSolo, openSolo, selectAgentTool, verifySoloStartup };
+export { bundledSoloCandidates, decodeSoloJson, ensureCursorWorkspaceTrusted, ensureSoloReady, findSoloCli, launchInSolo, matchesSoloRuntime, openSolo, selectAgentTool, soloProcessName, verifySoloStartup };

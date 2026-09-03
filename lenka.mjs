@@ -353,8 +353,9 @@ function launchInstalledRuntime(runtime, options) {
   if (options.workspace === 'solo') {
     const launched = launchInSolo(runtime, options, { locate: executable, launcherArgs });
     console.log(`Workspace: Solo (${launched.project.name})`);
-    console.log(`Agent: Lenka — Orkestar (${runtime.harness})`);
+    console.log(`Agent: ${launched.process.name} (${runtime.harness})`);
     console.log(`Process: ${launched.process.id}`);
+    console.log(`Session: ${launched.reused ? 'reused' : 'new'}`);
     return 0;
   }
 

@@ -152,8 +152,11 @@ desktop editor's Agent panel; use Cursor Agent directly, or run it inside Solo
 or Herdr.
 
 Use `lenka up solo` to start Solo when needed, import the current directory,
-show that exact project in the Solo window, and launch `Lenka — Orkestar` there
-with the same verified harness and model route.
+show that exact project in the Solo window, and launch a clearly named process
+such as `Lenka — Cursor Agent` or `Lenka — Codex` there with the same verified
+harness and model route. Repeating the command
+reuses the matching running session, or restarts its newest stopped session,
+instead of adding another duplicate process.
 Solo is a workspace, not a provider: `lenka up solo codex` still uses only the
 authenticated Codex route from that machine. Solo's HTTP API must be enabled;
 Orkestar starts the installed desktop app and waits for that API automatically.
