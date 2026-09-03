@@ -9,7 +9,7 @@ REPO_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 TARGET_HOME=${HOME}
 PROJECT=""
 PROJECT_ONLY=0
-NO_LAUNCH=0
+NO_LAUNCH=1
 USE_HERDR=1
 STRUCTURAL_ONLY=0
 CONFLICT="backup"
@@ -27,9 +27,10 @@ Options:
   --project-only       Leave global configuration untouched (requires --project)
   --conflict POLICY    fail, skip, or backup (default: backup)
   --harness NAME       auto, cursor, codex, claude, kimi, or opencode (default: auto)
-  --herdr              Open inside Herdr (default; accepted for clarity)
-  --direct             Open the selected CLI without Herdr
-  --no-launch          Verify setup without opening the selected CLI
+  --herdr              Install Herdr support (default; accepted for clarity)
+  --direct             Do not install or use Herdr during bootstrap
+  --no-launch          Stop after verification (default; accepted for clarity)
+  --launch             Open the detected CLI after bootstrap (advanced)
   --structural-only    Do not require an authenticated provider
   --help               Show this help
 EOF
@@ -45,6 +46,7 @@ while [ "$#" -gt 0 ]; do
     --herdr) USE_HERDR=1; shift ;;
     --direct) USE_HERDR=0; shift ;;
     --no-launch) NO_LAUNCH=1; shift ;;
+    --launch) NO_LAUNCH=0; shift ;;
     --structural-only) STRUCTURAL_ONLY=1; shift ;;
     --help|-h) usage; exit 0 ;;
     *) echo "ERROR: unknown option: $1" >&2; usage >&2; exit 2 ;;

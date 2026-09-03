@@ -29,7 +29,7 @@ test('both bootstraps verify the pinned Node archive checksum', () => {
   assert.match(windows, /Get-FileHash -Algorithm SHA256/);
 });
 
-test('bootstraps install the orchestra with Herdr as the default workspace', () => {
+test('bootstraps install the orchestra with Herdr support', () => {
   for (const source of [unix, windows]) {
     assert.match(source, /herdr\.dev\/(?:install|latest)/);
     assert.match(source, /orchestra\.mjs/);
@@ -42,6 +42,12 @@ test('bootstraps install the orchestra with Herdr as the default workspace', () 
   assert.match(unix, /CANDIDATES="cursor codex claude kimi opencode"/);
   assert.match(unix, /trying the next configured harness/i);
   assert.match(windows, /opencode-ai/);
+});
+
+test('manual bootstrap installs and verifies without opening a workspace', () => {
+  assert.match(unix, /NO_LAUNCH=1/);
+  assert.match(unix, /--launch\) NO_LAUNCH=0/);
+  assert.match(windows, /if \(\$NoLaunch -or -not \$Launch\) \{ exit 0 \}/);
 });
 
 test('one-command bootstraps recoverably back up conflicts by default', () => {

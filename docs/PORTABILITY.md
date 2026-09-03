@@ -13,8 +13,10 @@ Homebrew, and a developer's existing shell configuration are not dependencies.
 | Windows | `.\bootstrap.ps1` | x86_64; ARM64 through x86_64 emulation | default ConPTY workspace; `-Direct` bypass | OpenCode (current bootstrap) |
 
 Both entrypoints install runtime files below the selected user's home, prepend
-those paths only for the bootstrap process, install the same agent definitions,
-and open Lenka in Herdr by default. The Unix bootstrap selects Cursor Agent,
+those paths only for the bootstrap process, and install the same agent
+definitions. They stop after verification by default. The first `lenka up`
+asks where to open Lenka instead of allowing bootstrap to choose a workspace.
+The Unix bootstrap selects Cursor Agent,
 Codex, Claude Code, Kimi Code, or OpenCode only after a live response. `--direct` bypasses
 the project-specific persistent session without changing the harness. Unix does not edit
 `.zshrc`, `.bashrc`, or profile files. Windows bootstrap also keeps its runtime

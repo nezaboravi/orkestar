@@ -10,6 +10,7 @@ param(
     [switch]$UseHerdr,
     [switch]$Direct,
     [switch]$NoLaunch,
+    [switch]$Launch,
     [switch]$StructuralOnly
 )
 
@@ -208,7 +209,7 @@ if ($StructuralOnly) {
 }
 
 Write-Host "`nREADY: agent-orchestra is installed and verified."
-if ($NoLaunch) { exit 0 }
+if ($NoLaunch -or -not $Launch) { exit 0 }
 
 $LaunchDir = if ([string]::IsNullOrWhiteSpace($Project)) { $RepoDir } else { $Project }
 Set-Location -LiteralPath $LaunchDir

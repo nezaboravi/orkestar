@@ -55,6 +55,8 @@ needed, detects an authenticated harness, installs the team, verifies a real
 model response, and installs Herdr. On the first plain `lenka up`, a friendly
 wizard asks which AI service to use, where Lenka should work, and whether to
 connect Taskavel. It saves those choices instead of guessing.
+Bootstrap never opens an AI client or workspace by default; installation and
+first use are deliberately separate, predictable steps.
 It does not depend on Homebrew, Laravel Herd, a particular username, or a
 machine-specific project directory.
 

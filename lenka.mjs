@@ -421,19 +421,19 @@ async function up(options) {
   console.log(`Harness: ${harness === 'auto' ? 'auto-detect' : harness}`);
   if (process.platform === 'win32') {
     const windows = ['-Project', options.project, '-ProjectOnly', '-Conflict', options.conflict, '-Harness', harness];
-    if (options.noLaunch || options.workspace === 'solo') windows.push('-NoLaunch');
+    windows.push('-NoLaunch');
     if (options.workspace === 'herdr') windows.push('-UseHerdr');
     const installedStatus = run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repoRoot, 'bootstrap.ps1'), ...windows]);
-    if (installedStatus !== 0 || options.noLaunch || options.workspace !== 'solo') return installedStatus;
+    if (installedStatus !== 0 || options.noLaunch) return installedStatus;
     const runtime = selectInstalledRuntime(options.project, harness);
     if (!runtime) throw new Error(`no verified ${harness} runtime exists after installation`);
     return launchInstalledRuntime(runtime, options);
   }
   const common = ['--project', options.project, '--project-only', '--conflict', options.conflict, '--harness', harness];
-  if (options.noLaunch || options.workspace === 'solo') common.push('--no-launch');
+  common.push('--no-launch');
   if (options.workspace === 'herdr') common.push('--herdr');
   const installedStatus = run('sh', [path.join(repoRoot, 'bootstrap.sh'), ...common]);
-  if (installedStatus !== 0 || options.noLaunch || options.workspace !== 'solo') return installedStatus;
+  if (installedStatus !== 0 || options.noLaunch) return installedStatus;
   const runtime = selectInstalledRuntime(options.project, harness);
   if (!runtime) throw new Error(`no verified ${harness} runtime exists after installation`);
   return launchInstalledRuntime(runtime, options);
