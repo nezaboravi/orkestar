@@ -106,3 +106,13 @@ test('Lenka reuses a verified global runtime without a project reinstall', async
   assert.equal(selected.manifest.primary.model, 'gpt-5.6-terra');
   assert.equal(selected.binary, '/verified/codex');
 });
+
+test('Lenka stops with the exact login command before probing an unauthenticated harness', async () => {
+  const { ensureHarnessAuthentication } = await import('../lenka.mjs');
+  await assert.rejects(() => ensureHarnessAuthentication('cursor', '/project', {
+    locate: (command) => command === 'agent' ? '/verified/agent' : null,
+    capture: () => ({ status: 0, stdout: '{"status":"unauthenticated","isAuthenticated":false}', stderr: '' }),
+    input: { isTTY: false },
+    output: { isTTY: false },
+  }), /cursor is installed but not signed in\. Run: agent login/);
+});

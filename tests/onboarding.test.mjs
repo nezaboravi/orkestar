@@ -25,6 +25,15 @@ test('detection uses the real Cursor Agent command and records honest login stat
   assert.equal(statuses.find((item) => item.harness === 'codex').authenticated, true);
 });
 
+test('Cursor detection reads the current isAuthenticated field exactly', () => {
+  const statuses = inspectHarnesses(
+    (command) => command === 'agent' ? '/bin/agent' : null,
+    () => ({ status: 0, stdout: '{"status":"authenticated","isAuthenticated":true}', stderr: '' }),
+    '/project',
+  );
+  assert.equal(statuses.find((item) => item.harness === 'cursor').authenticated, true);
+});
+
 test('automatic recommendation never guesses between multiple valid subscriptions', () => {
   const statuses = [
     { harness: 'codex', authenticated: true },

@@ -14,6 +14,7 @@ import {
   commandForHarness,
   connectTaskavel,
   harnessOrder,
+  inspectHarness,
   inspectHarnesses,
   loadPreferences,
   missingHarnessMessage,
@@ -202,6 +203,34 @@ function runInteractive(command, args, cwd = process.cwd()) {
   return result.status ?? 1;
 }
 
+async function ensureHarnessAuthentication(harness, project, dependencies = {}) {
+  if (!harness || harness === 'auto') return;
+  const locate = dependencies.locate || executable;
+  const capture = dependencies.capture || runCaptured;
+  const interactive = dependencies.interactive || runInteractive;
+  const input = dependencies.input || process.stdin;
+  const output = dependencies.output || process.stdout;
+  let status = inspectHarness(harness, locate, capture, project);
+  if (!status.installed) throw new Error(missingHarnessMessage(harness));
+  if (status.authenticated !== false) return;
+  if (!input.isTTY || !output.isTTY) {
+    throw new Error(`${harness} is installed but not signed in. Run: ${commandForHarness(harness)} ${signInArgs(harness).join(' ')}`);
+  }
+  const prompt = readline.createInterface({ input, output });
+  try {
+    const answer = (await prompt.question(`${harness} is installed but not signed in. Open its login now? [Y/n]: `)).trim().toLowerCase();
+    if (['n', 'no'].includes(answer)) {
+      throw new Error(`${harness} login is required before Lenka can start it`);
+    }
+  } finally {
+    prompt.close();
+  }
+  const loginStatus = interactive(status.binary, signInArgs(harness), project);
+  if (loginStatus !== 0) throw new Error(`${harness} login did not complete`);
+  status = inspectHarness(harness, locate, capture, project);
+  if (status.authenticated === false) throw new Error(`${harness} is still not signed in after login`);
+}
+
 async function setup(options) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('lenka setup requires an interactive terminal');
   const home = homeDirectory();
@@ -357,7 +386,7 @@ async function up(options) {
     options.herdr = preferences.workspace === 'herdr';
   }
   const harness = options.ask ? await chooseHarness() : (options.harness || preferences?.harness || 'auto');
-  if (harness !== 'auto' && !executable(commandForHarness(harness))) throw new Error(missingHarnessMessage(harness));
+  await ensureHarnessAuthentication(harness, options.project);
   const installed = selectInstalledRuntime(options.project, harness);
   if (installed) {
     const launched = launchInstalledRuntime(installed, options);
@@ -540,4 +569,4 @@ if (invokedFile === fileURLToPath(import.meta.url)) {
   }
 }
 
-export { main, manifests, parse, selectInstalledRuntime, setup, shouldOpenHerdr };
+export { ensureHarnessAuthentication, main, manifests, parse, selectInstalledRuntime, setup, shouldOpenHerdr };

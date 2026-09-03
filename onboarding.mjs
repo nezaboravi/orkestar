@@ -53,6 +53,7 @@ function authenticatedFromOutput(harness, result) {
     if (typeof parsed.authenticated === 'boolean') return parsed.authenticated;
     if (typeof parsed.loggedIn === 'boolean') return parsed.loggedIn;
     if (typeof parsed.isLoggedIn === 'boolean') return parsed.isLoggedIn;
+    if (typeof parsed.isAuthenticated === 'boolean') return parsed.isAuthenticated;
   } catch { /* Fall back to stable human-readable output. */ }
   if (/not logged in|unauthenticated|needs approval|no models available/i.test(output)) return false;
   if (harness === 'cursor') return /logged.?in|authenticated|account|email/i.test(output);

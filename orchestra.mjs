@@ -324,7 +324,10 @@ function cursorModelInventory(home, runner = spawnSync, binary = executable('age
     const rows = Array.isArray(parsed) ? parsed : (parsed.models || []);
     return [...new Set(rows.map((model) => typeof model === 'string' ? model : (model.id || model.slug || model.name)).filter(Boolean))];
   } catch {
-    return [...new Set(output.split(/\r?\n/).map((line) => line.trim().replace(/^[-*]\s*/, '').split(/\s{2,}|\t/)[0]).filter((line) => line && !/models available|model\s+name/i.test(line)))];
+    return [...new Set(output.split(/\r?\n/).map((line) => {
+      const normalized = line.trim().replace(/^[-*]\s*/, '');
+      return normalized.split(/\s+-\s+|\s{2,}|\t/)[0];
+    }).filter((line) => line && !/(?:available\s+models|models\s+available|model\s+name)/i.test(line)))];
   }
 }
 
@@ -759,14 +762,14 @@ function resolveExecutableCandidates(home, inventory, candidatesByKey, probeMode
 }
 
 function resolveExecutableModels(home, inventory, probeModel = modelProbe, tool = 'opencode') {
-  const candidates = tool === 'kimi'
+  const candidates = tool === 'kimi' || tool === 'cursor'
     ? Object.fromEntries(Object.keys(declaredRoles(tool)).map((role) => [role, inventory]))
     : declaredRoles(tool);
   return resolveExecutableCandidates(home, inventory, candidates, probeModel, tool);
 }
 
 function resolveExecutableFactoryModels(home, inventory, probeModel = modelProbe, tool = 'opencode') {
-  const candidates = tool === 'kimi'
+  const candidates = tool === 'kimi' || tool === 'cursor'
     ? Object.fromEntries(Object.keys(declaredClasses(tool)).map((modelClass) => [modelClass, inventory]))
     : declaredClasses(tool);
   return resolveExecutableCandidates(home, inventory, candidates, probeModel, tool);

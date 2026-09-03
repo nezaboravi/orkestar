@@ -107,11 +107,26 @@ test('Lenka invokes product design only through the development lead when it is 
 });
 
 test('Cursor inventory and probe use the Cursor Agent CLI', () => {
-  const inventory = cursorModelInventory('/tmp/home', () => ({ status: 0, stdout: 'composer-2\ngpt-5.6-sol\n' }), '/bin/agent');
-  assert.deepEqual(inventory, ['composer-2', 'gpt-5.6-sol']);
+  const inventory = cursorModelInventory('/tmp/home', () => ({ status: 0, stdout: 'Available models\n\nauto - Auto (default)\ncomposer-2 - Composer 2\n' }), '/bin/agent');
+  assert.deepEqual(inventory, ['auto', 'composer-2']);
   const probe = cursorModelProbe('/tmp/home', 'composer-2', () => ({ status: 0, stdout: JSON.stringify({ result: 'ORCHESTRA_CURSOR_OK' }), stderr: '' }), '/bin/agent');
   assert.equal(probe.ok, true);
   assert.equal(probe.tokens, null);
+});
+
+test('Cursor live routing probes models reported by the signed-in account', () => {
+  const seen = [];
+  const probe = (_home, model) => {
+    seen.push(model);
+    return { model, ok: model === 'gpt-live', authFailure: false, reason: model === 'gpt-live' ? 'verified response' : 'unavailable', tokens: null, cost: null };
+  };
+  const inventory = ['auto', 'gpt-live'];
+  const roles = resolveExecutableModels('/tmp/home', inventory, probe, 'cursor');
+  const classes = resolveExecutableFactoryModels('/tmp/home', inventory, probe, 'cursor');
+
+  assert.ok(Object.values(roles.routes).every((model) => model === 'gpt-live'));
+  assert.ok(Object.values(classes.routes).every((model) => model === 'gpt-live'));
+  assert.deepEqual([...new Set(seen)], ['auto', 'gpt-live']);
 });
 
 test('Kimi conversion preserves the main orchestrator and least-privilege role tools', () => {

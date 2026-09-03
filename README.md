@@ -143,17 +143,31 @@ strongest routes according to their capability profile. Each absolute project
 path gets its own stable Herdr session. Add `--direct` to bypass Herdr without
 changing the selected harness, model routes, or orchestration rules.
 
-Use `lenka up solo` to import the current directory into a running Solo app and
-launch `Lenka — Orkestar` there with the same verified harness and model route.
+Use `lenka up solo` to start Solo when needed, import the current directory,
+show that exact project in the Solo window, and launch `Lenka — Orkestar` there
+with the same verified harness and model route.
 Solo is a workspace, not a provider: `lenka up solo codex` still uses only the
-authenticated Codex route from that machine. Solo must be running with its HTTP
-API enabled. Its CLI can be on `PATH`; on macOS Orkestar also detects the
-bundled CLI in the standard Solo application location.
+authenticated Codex route from that machine. Solo's HTTP API must be enabled;
+Orkestar starts the installed desktop app and waits for that API automatically.
+Its CLI can be on `PATH`; on macOS Orkestar also detects the bundled CLI in the
+standard Solo application location.
 
-Solo currently provides public desktop builds for macOS and Windows. On Linux,
-including Arch/Omarchy, use the default Herdr workspace or `--direct`; the
-orchestra, agents, model routing, Taskavel policy, verification, and audit
-contract remain the same.
+Solo 0.10 does not classify Cursor Agent as a built-in tool. Add it once in
+**Solo → Settings → Agents → Add tool** with the name `Cursor` and the command
+reported by `command -v agent` (`where.exe agent` on Windows). Orkestar accepts
+that generic Solo entry, verifies the signed-in Cursor model route, establishes
+workspace trust once without an interactive prompt, and then opens the exact
+Solo project. The trust marker contains only the harness name and absolute
+project path; it contains no credentials.
+
+When an explicitly selected harness is installed but signed out, `lenka up`
+offers to open that harness's native login before any model probe. It never
+reports a misleading missing-model error for a known signed-out CLI.
+
+On Linux, including Arch/Omarchy, Orkestar opens Solo through its registered
+`solo:` desktop URL handler. Herdr and `--direct` remain available when a Linux
+desktop does not register that handler. The orchestra, agents, model routing,
+Taskavel policy, verification, and audit contract remain the same.
 
 Solo and the selected CLI must be allowed to read the project directory. On
 macOS, a checkout inside a protected folder such as `Documents` can require
@@ -310,12 +324,12 @@ store exposes the required lineage and usage fields. Codex, Claude Code, and
 Kimi Code must say `unavailable` for fields their current adapter cannot prove;
 they must not borrow OpenCode numbers or display zero as if it meant no usage.
 
-Codex and Claude Code have authenticated adapter proofs; their complete
+Codex, Claude Code, and Cursor have authenticated adapter proofs; their complete
 PLAN → BUILD → VERIFY → PROVE behavior proofs are still pending. OpenCode is
 the original adapter. Kimi Code has an authenticated direct-adapter proof; its
 complete behavior proof is still pending. Cursor's official agent format, CLI
-invocation, model inventory, and Taskavel OAuth adapter are implemented; an
-authenticated Cursor behavior proof remains pending.
+invocation, live account model inventory, one-time workspace trust, Solo launch,
+and Taskavel OAuth adapter are implemented.
 
 | Tool | Status | Agents (global) | Teams (explicit project install) | Persona |
 |---|---|---|---|---|
@@ -323,7 +337,7 @@ authenticated Cursor behavior proof remains pending.
 | Claude Code | Authenticated adapter; full behavior proof pending | `~/.claude/agents/*.md` | `.claude/agents/` | `~/.claude/CLAUDE.md` |
 | Codex | Authenticated adapter; full behavior proof pending | `~/.codex/agents/*.toml` | `.codex/agents/` | `~/.codex/AGENTS.md` |
 | Kimi Code | Authenticated direct adapter; full behavior proof pending | `~/.kimi-code/agents/*.md` | `.kimi-code/agents/` | `~/.kimi-code/AGENTS.md` |
-| Cursor | Adapter implemented; authenticated proof pending | `~/.cursor/agents/*.md` | `.cursor/agents/` | `~/.cursor/rules/lenka.mdc` |
+| Cursor | Authenticated adapter and Solo launch proven on macOS; full behavior proof pending | `~/.cursor/agents/*.md` | `.cursor/agents/` | `~/.cursor/rules/lenka.mdc` |
 
 Shared skills are installed into `~/.agents/skills`. Project files are never
 written merely because the installer was launched from that directory.
