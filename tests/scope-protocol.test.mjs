@@ -155,6 +155,10 @@ test('shipped prompts state contract, classification, report-only, and repair co
   for (const phrase of ['Task Contract', 'OUT_OF_SCOPE', 'report-only', 'repair']) assert.match(prompts, new RegExp(phrase, 'i'));
   assert.match(prompts, /SCOPED_FAILURE/);
   assert.match(prompts, /VERIFIED_DEFECT/);
+  assert.match(prompts, /acceptance criterion/i);
+  assert.match(prompts, /command name or green exit code alone is a\s+smoke check, not proof/i);
+  assert.match(prompts, /visual proof/i);
+  assert.match(prompts, /independent dev-auditor/i);
 });
 
 test('Lenka up parsing remains compatible with existing workspace and harness forms', async () => {

@@ -151,41 +151,70 @@ function configureCursorTaskavel(home = os.homedir()) {
   return target;
 }
 
+function configuredTaskavelName(result) {
+  const output = `${result?.stdout || ''}\n${result?.stderr || ''}`
+    .replace(/\u001b\[[0-9;]*m/g, '');
+  for (const rawLine of output.split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/^[^A-Za-z0-9]+/, '');
+    const match = line.match(/^(Taskavel)(?=\s*:|\s+(?:https?:\/\/|connected\b|failed\b|not loaded\b|enabled\b|disabled\b))/i);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+function requireTaskavelLogin(harness, status) {
+  if (status !== 0) throw new Error(`${harness} did not complete Taskavel OAuth`);
+}
+
 function connectTaskavel(harness, { home = os.homedir(), locate, run, capture = defaultCapture, cwd = process.cwd() }) {
   const binary = locate(commandForHarness(harness));
   if (!binary) throw new Error(missingHarnessMessage(harness));
   const endpoint = 'https://taskavel.com/mcp/taskavel';
   if (harness === 'cursor') {
     const listed = capture(binary, ['mcp', 'list'], cwd);
-    if (!/\btaskavel\b/i.test(`${listed.stdout || ''}\n${listed.stderr || ''}`)) {
+    const configuredName = configuredTaskavelName(listed);
+    if (!configuredName) {
       configureCursorTaskavel(home);
     }
-    const status = run(binary, ['mcp', 'login', 'taskavel'], cwd);
-    return { configured: true, loginStarted: status === 0, verification: 'Run `agent mcp list` after browser authorization.' };
+    const name = configuredName || 'taskavel';
+    const enabled = run(binary, ['mcp', 'enable', name], cwd);
+    if (enabled !== 0) throw new Error('Cursor Agent could not approve the Taskavel MCP server');
+    const status = run(binary, ['mcp', 'login', name], cwd);
+    requireTaskavelLogin('Cursor Agent', status);
+    return { configured: true, loginStarted: true, verification: 'Taskavel OAuth completed. Lenka will continue in the current project.' };
   }
   if (harness === 'codex') {
     const listed = capture(binary, ['mcp', 'list'], cwd);
-    if (!/\btaskavel\b/i.test(`${listed.stdout || ''}\n${listed.stderr || ''}`)) {
+    const configuredName = configuredTaskavelName(listed);
+    if (!configuredName) {
       const added = run(binary, ['mcp', 'add', 'taskavel', '--url', endpoint], cwd);
       if (added !== 0) throw new Error('Codex could not add the Taskavel MCP server');
     }
-    const status = run(binary, ['mcp', 'login', 'taskavel'], cwd);
-    return { configured: true, loginStarted: status === 0, verification: 'Run `codex mcp list` after browser authorization.' };
+    const status = run(binary, ['mcp', 'login', configuredName || 'taskavel'], cwd);
+    requireTaskavelLogin('Codex', status);
+    return { configured: true, loginStarted: true, verification: 'Taskavel OAuth completed. Lenka will continue in the current project.' };
   }
   if (harness === 'claude') {
     const listed = capture(binary, ['mcp', 'list'], cwd);
-    if (!/\btaskavel\b/i.test(`${listed.stdout || ''}\n${listed.stderr || ''}`)) {
+    const configuredName = configuredTaskavelName(listed);
+    if (!configuredName) {
       const added = run(binary, ['mcp', 'add', '--transport', 'http', '--scope', 'user', 'taskavel', endpoint], cwd);
       if (added !== 0) throw new Error('Claude Code could not add the Taskavel MCP server');
     }
-    const status = run(binary, ['mcp', 'login', 'taskavel'], cwd);
-    return { configured: true, loginStarted: status === 0, verification: 'Run `claude mcp list` after browser authorization.' };
+    const status = run(binary, ['mcp', 'login', configuredName || 'taskavel'], cwd);
+    requireTaskavelLogin('Claude Code', status);
+    return { configured: true, loginStarted: true, verification: 'Taskavel OAuth completed. Lenka will continue in the current project.' };
   }
   if (harness === 'opencode') {
-    const status = run(binary, ['mcp', 'add'], cwd);
-    if (status !== 0) throw new Error('OpenCode did not complete its interactive MCP setup');
-    const login = run(binary, ['mcp', 'auth', 'taskavel'], cwd);
-    return { configured: true, loginStarted: login === 0, verification: 'Run `opencode mcp list` after browser authorization.' };
+    const listed = capture(binary, ['mcp', 'list'], cwd);
+    const configuredName = configuredTaskavelName(listed);
+    if (!configuredName) {
+      const added = run(binary, ['mcp', 'add', 'taskavel', '--url', endpoint], cwd);
+      if (added !== 0) throw new Error('OpenCode could not add the Taskavel MCP server');
+    }
+    const login = run(binary, ['mcp', 'auth', configuredName || 'taskavel'], cwd);
+    requireTaskavelLogin('OpenCode', login);
+    return { configured: true, loginStarted: true, verification: 'Taskavel OAuth completed. Lenka will continue in the current project.' };
   }
   return { configured: false, loginStarted: false, verification: 'Kimi Code does not expose a verified Taskavel MCP setup command in this adapter. Use Codex, Claude Code, Cursor, or OpenCode for Taskavel work.' };
 }
@@ -205,6 +234,7 @@ function connectOptionalTaskavel(harness, dependencies) {
 
 export {
   commandForHarness,
+  configuredTaskavelName,
   configureCursorTaskavel,
   connectOptionalTaskavel,
   connectTaskavel,

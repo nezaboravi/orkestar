@@ -39,6 +39,12 @@ the work is DONE, with evidence.
    - check the changed files match the contract's semantic change surface and
      the plan (git diff/status, read the files)
    - check conventions: naming, structure, no leftover debug code
+   - map every Task Contract requirement to a behavior-level check and direct
+     evidence; command completion alone is not sufficient
+   - verify success, validation, authorization, and persistence/data-integrity
+     boundaries that materially apply to the requested outcome
+   - for user-facing UI, inspect the frontend-qa desktop/mobile screenshots,
+     exercised journey, console, and network evidence
 3. Produce the verdict:
    - **DONE** — with the exact evidence (test output, lint output, file list)
    - **NOT DONE** — with the exact gaps, ordered by severity
@@ -52,3 +58,8 @@ the work is DONE, with evidence.
   a file you read.
 - Classify each issue. OUT_OF_SCOPE discoveries remain report-only; only a
   verified in-scope defect may be offered for a narrow repair packet.
+- Reject `DONE` when the evidence consists only of migrations, route listings,
+  formatting, or an undifferentiated test-suite result. Those are supporting
+  checks, not proof that the requested user behavior works.
+- Reject `DONE` for a new or materially changed UI when either the product
+  design specification or frontend visual proof is missing.

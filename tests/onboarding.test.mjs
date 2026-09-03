@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   commandForHarness,
+  configuredTaskavelName,
   configureCursorTaskavel,
   connectOptionalTaskavel,
   connectTaskavel,
@@ -86,8 +87,45 @@ test('Cursor Taskavel setup trusts Cursor inventory before parsing its configura
     run: (binary, args) => { calls.push([binary, args]); return 0; },
   });
   assert.equal(result.configured, true);
-  assert.deepEqual(calls, [['/bin/agent', ['mcp', 'login', 'taskavel']]]);
+  assert.deepEqual(calls, [
+    ['/bin/agent', ['mcp', 'enable', 'taskavel']],
+    ['/bin/agent', ['mcp', 'login', 'taskavel']],
+  ]);
   assert.equal(fs.readFileSync(path.join(directory, 'mcp.json'), 'utf8'), existing);
+});
+
+test('Taskavel inventory detection rejects a URL-shaped duplicate and Taskavel Dev', () => {
+  assert.equal(configuredTaskavelName({ stdout: 'Taskavel Dev: connected\nhttps://taskavel.com/mcp/taskavel failed' }), null);
+  assert.equal(configuredTaskavelName({ stdout: '●  ✓ Taskavel connected' }), 'Taskavel');
+  assert.equal(configuredTaskavelName({ stdout: 'taskavel: not loaded (needs approval)' }), 'taskavel');
+});
+
+test('OpenCode Taskavel setup is non-interactive and starts native OAuth', () => {
+  const calls = [];
+  const result = connectTaskavel('opencode', {
+    locate: () => '/bin/opencode',
+    capture: () => ({ status: 0, stdout: 'context7 connected\nhttps://taskavel.com/mcp/taskavel failed', stderr: '' }),
+    run: (binary, args, cwd) => { calls.push([binary, args, cwd]); return 0; },
+    cwd: '/project',
+  });
+  assert.equal(result.configured, true);
+  assert.deepEqual(calls, [
+    ['/bin/opencode', ['mcp', 'add', 'taskavel', '--url', 'https://taskavel.com/mcp/taskavel'], '/project'],
+    ['/bin/opencode', ['mcp', 'auth', 'taskavel'], '/project'],
+  ]);
+});
+
+test('every supported Taskavel connector authenticates the exact existing server name', () => {
+  for (const harness of ['codex', 'claude', 'opencode']) {
+    const calls = [];
+    connectTaskavel(harness, {
+      locate: () => `/bin/${harness}`,
+      capture: () => ({ status: 0, stdout: 'Taskavel connected', stderr: '' }),
+      run: (_binary, args) => { calls.push(args); return 0; },
+    });
+    const expected = harness === 'opencode' ? ['mcp', 'auth', 'Taskavel'] : ['mcp', 'login', 'Taskavel'];
+    assert.deepEqual(calls, [expected]);
+  }
 });
 
 test('optional Taskavel failure never blocks the selected workspace launch', () => {
@@ -104,4 +142,15 @@ test('optional Taskavel failure never blocks the selected workspace launch', () 
   assert.equal(result.configured, false);
   assert.match(result.warning, /Lenka will continue without Taskavel/);
   assert.match(result.warning, /lenka connect taskavel cursor/);
+});
+
+test('Taskavel OAuth failure is reported instead of returning configured success', () => {
+  const result = connectOptionalTaskavel('codex', {
+    locate: () => '/bin/codex',
+    capture: () => ({ status: 0, stdout: 'taskavel https://taskavel.com/mcp/taskavel', stderr: '' }),
+    run: () => 1,
+  });
+  assert.equal(result.configured, false);
+  assert.equal(result.loginStarted, false);
+  assert.match(result.warning, /did not complete Taskavel OAuth/);
 });

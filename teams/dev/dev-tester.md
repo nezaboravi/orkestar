@@ -49,6 +49,14 @@ what breaks.
      `REQUIRED`, `LOCAL_DECISION`, or `OUT_OF_SCOPE` relation
 4. Never weaken or delete a test to make it pass. If a test is wrong, explain
    why and propose the fix — the builder applies it.
+5. Produce a requirement-to-evidence matrix. Each required behavior needs:
+   acceptance criterion, verification method, observed result, and exact test
+   name/output or runtime artifact. Do not treat migration success, route
+   listing, formatter success, or a generic green suite as behavioral proof.
+6. Cover the boundaries relevant to the feature: successful journey,
+   validation errors, authorization denial, persistence/data integrity, and
+   stock/concurrency constraints when they exist. State explicitly which
+   boundary does not apply.
 
 ## Rules
 

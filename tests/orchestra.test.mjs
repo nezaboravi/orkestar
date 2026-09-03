@@ -106,6 +106,19 @@ test('Lenka invokes product design only through the development lead when it is 
   assert.match(lenka, /approved design already/);
 });
 
+test('Lenka cannot bypass the development lead with direct implementation roles', () => {
+  const lenka = parseAgent(path.join(repoRoot, 'agents', 'lenka.md'));
+  const lead = parseAgent(path.join(repoRoot, 'teams', 'dev', 'dev-lead.md'));
+  const direct = lenka.frontmatter.permission.task;
+
+  assert.equal(direct['dev-lead'], 'allow');
+  for (const role of ['implementer', 'verifier', 'dev-planner', 'dev-builder', 'dev-tester', 'dev-auditor']) {
+    assert.notEqual(direct[role], 'allow', `Lenka must not dispatch ${role} directly`);
+  }
+  assert.equal(lead.frontmatter.permission.task['frontend-qa'], 'allow');
+  assert.match(lenka.body, /delegate the complete goal to `dev-lead` exactly once/);
+});
+
 test('Cursor inventory and probe use the Cursor Agent CLI', () => {
   const inventory = cursorModelInventory('/tmp/home', () => ({ status: 0, stdout: 'Available models\n\nauto - Auto (default)\ncomposer-2 - Composer 2\n' }), '/bin/agent');
   assert.deepEqual(inventory, ['auto', 'composer-2']);
@@ -170,6 +183,17 @@ test('unattended builder keeps destructive and external operations denied', () =
   assert.equal(permission.external_directory, 'deny');
   for (const command of ['git push*', 'git reset*', 'rm *', 'sudo *', 'ssh *', 'curl *', 'gh *', 'php artisan db:wipe*']) {
     assert.equal(permission.bash[command], 'deny', `${command} must stay denied`);
+  }
+});
+
+test('every writable general-purpose envelope denies destructive database and filesystem commands', () => {
+  for (const relative of ['agents/implementer.md', 'agents/debugger.md', 'agents/deep-debugger.md']) {
+    const agent = parseAgent(path.join(repoRoot, relative));
+    assert.equal(agent.frontmatter.permission.edit, 'allow');
+    assert.equal(agent.frontmatter.permission.external_directory, 'deny');
+    for (const command of ['git reset*', 'git clean*', 'rm *', 'sudo *', 'php artisan migrate:fresh*', 'php artisan db:wipe*']) {
+      assert.equal(agent.frontmatter.permission.bash[command], 'deny', `${relative}: ${command} must stay denied`);
+    }
   }
 });
 
@@ -555,8 +579,16 @@ test('OpenCode installation includes the exact run audit tool', () => {
     resolvedFactoryModelsByTool: { opencode: {} },
   });
   const operation = plan.operations.find((item) => item.target === path.join(project, '.opencode', 'tools', 'orchestra-report.ts'));
+  const statePlugin = plan.operations.find((item) => item.target === path.join(project, '.opencode', 'plugins', 'orchestra-state.ts'));
   assert.ok(operation);
   assert.match(operation.content.toString(), /Exact OpenCode session database values; no estimates/);
+  assert.match(operation.content.toString(), /context\.directory/);
+  assert.match(operation.content.toString(), /DONE development run requires a recorded independent dev-auditor session/);
+  assert.match(operation.content.toString(), /DONE UI run requires a recorded frontend-qa session/);
+  assert.match(operation.content.toString(), /Taskavel: \$\{audit\.taskavel\}/);
+  assert.ok(statePlugin);
+  assert.match(statePlugin.content.toString(), /context\.directory/);
+  assert.match(statePlugin.content.toString(), /Refusing to persist Orkestar state at filesystem root/);
   assert.ok(plan.operations.some((item) => item.target === path.join(project, '.opencode', 'tools', 'browser-discovery.ts')));
 });
 
@@ -582,7 +614,9 @@ test('clean-room install is repeatable and creates a recovery manifest', () => {
 
   assert.equal(silently(() => main(args)), 0);
   assert.ok(fs.existsSync(path.join(home, '.config', 'opencode', 'agents', 'dev-lead.md')));
+  assert.ok(fs.existsSync(path.join(home, '.config', 'opencode', 'plugins', 'orchestra-state.ts')));
   assert.ok(fs.existsSync(path.join(project, '.opencode', 'agents', 'dev-auditor.md')));
+  assert.ok(fs.existsSync(path.join(project, '.opencode', 'plugins', 'orchestra-state.ts')));
   assert.ok(fs.existsSync(path.join(project, 'AGENTS.md')));
 
   const repeatedPlan = buildPlan({ selectedTools: ['opencode'], home, project });

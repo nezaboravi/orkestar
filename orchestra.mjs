@@ -13,6 +13,7 @@ const sourceAgents = path.join(repoRoot, 'agents');
 const sourceTeams = path.join(repoRoot, 'teams');
 const sourceSkills = path.join(repoRoot, 'skills');
 const sourceOpenCodeTools = path.join(repoRoot, 'adapters', 'opencode', 'tools');
+const sourceOpenCodePlugins = path.join(repoRoot, 'adapters', 'opencode', 'plugins');
 const sourceProtocol = path.join(repoRoot, 'protocol');
 const sourceSchemas = path.join(repoRoot, 'schemas');
 const persona = fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8');
@@ -916,6 +917,13 @@ function buildPlan(options) {
             kind: 'opencode orchestra tool',
           });
         }
+        for (const name of fs.readdirSync(sourceOpenCodePlugins).sort()) {
+          operations.push({
+            target: path.join(options.home, '.config', 'opencode', 'plugins', name),
+            content: fs.readFileSync(path.join(sourceOpenCodePlugins, name)),
+            kind: 'opencode orchestra plugin',
+          });
+        }
       }
     }
     if (options.project) {
@@ -937,6 +945,13 @@ function buildPlan(options) {
             target: path.join(options.project, '.opencode', 'tools', name),
             content: fs.readFileSync(path.join(sourceOpenCodeTools, name)),
             kind: 'opencode project orchestra tool',
+          });
+        }
+        for (const name of fs.readdirSync(sourceOpenCodePlugins).sort()) {
+          operations.push({
+            target: path.join(options.project, '.opencode', 'plugins', name),
+            content: fs.readFileSync(path.join(sourceOpenCodePlugins, name)),
+            kind: 'opencode project orchestra plugin',
           });
         }
       }

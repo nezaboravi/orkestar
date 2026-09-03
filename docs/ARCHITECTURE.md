@@ -14,8 +14,11 @@ implicit dependency.
    visual control plane, while `--direct` bypasses a workspace.
 4. **Harness** — Cursor Agent, Codex, Claude Code, Kimi Code, or OpenCode executes the same
    team rules.
-5. **Proof** — tests, static checks, independent audit, cost records, and the
-   project handoff turn activity into verified behavior.
+5. **Proof** — acceptance-criterion evidence, negative and boundary checks,
+   visual/browser evidence when relevant, independent audit, cost records, and
+   the project handoff turn activity into verified behavior. General test,
+   migration, routing, formatting, and static-analysis commands are supporting
+   health checks rather than proof by themselves.
 
 ## Scope protocol
 
@@ -102,6 +105,23 @@ Explicit agent-level denials remain the boundary. Destructive Git, deletion,
 database resets, credential changes, and unrequested external effects require
 the human. A non-destructive external write explicitly named in the requested
 outcome may proceed unattended and must still receive independent proof.
+
+Development execution has an additional structural boundary: the primary
+orchestrator may dispatch it only through `dev-lead`. The lead cannot declare
+its own work complete; a recorded `dev-auditor` session supplies the final
+independent verdict. Material UI work also requires the design and frontend QA
+phases. The OpenCode report tool enforces these requirements before it accepts
+`DONE`.
+
+Taskavel setup is adapter-native. Each supported client registers the same
+public streamable HTTP endpoint under the exact `taskavel` name, invokes its
+own OAuth command, and returns control to the original project. No adapter asks
+the user for client credentials or copies authentication state between tools.
+
+OpenCode handoff and run state use the tool execution session's active
+directory, not its Git worktree. This matters for fresh Laravel projects that
+do not yet have `.git`: their worktree may resolve to `/`, while the session
+directory still identifies the real project. Root-level persistence is denied.
 
 ## Portable installation contract
 

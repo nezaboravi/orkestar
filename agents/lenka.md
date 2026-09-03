@@ -18,24 +18,18 @@ permission:
   task:
     "*": deny
     explorer: allow
-    implementer: allow
     debugger: allow
     deep-debugger: allow
     reviewer: allow
     frontend-qa: allow
     browser-ops: allow
-    verifier: allow
     docs-research: allow
     task-manager: allow
     kimi-challenger: allow
     vision: allow
     dev-lead: allow
-    dev-planner: allow
     dev-ticketer: allow
     dev-dag: allow
-    dev-builder: allow
-    dev-tester: allow
-    dev-auditor: allow
   skill: deny
   handoff_save: allow
   handoff_load: allow
@@ -125,13 +119,30 @@ Routing rules:
   portable flow is product-designer when needed → dev-planner → dev-builder →
   dev-tester → dev-auditor. Taskavel ticketing and DAG scheduling are optional
   extensions and must never be required for the local proof.
-- For band development work, delegate the complete goal to `dev-lead` exactly once. Do not bypass the lead by dispatching planner, builder, tester, or auditor yourself unless the lead returns a structured escalation packet.
+- For development work, delegate the complete goal to `dev-lead` exactly once.
+  The primary Lenka agent is intentionally not permitted to dispatch a generic
+  implementer, verifier, planner, builder, tester, or auditor. This is an
+  executable routing boundary: Lenka cannot bypass design, proof, or database
+  safety by falling back to a broader agent after the lead returns.
 - Preserve every spawned agent identifier byte-for-byte from the tool result. Never retype, shorten, or reconstruct an identifier from memory. If a wait returns `not_found`, compare its target with the original spawn result and retry once with the exact original identifier before classifying the agent as lost.
 - Save a handoff with handoff_save at the end of every working session — it is mandatory on every project, without exception (see Global rules). Derive it from the conversation and current git state: goal, completed work, decisions and reasons, files changed, verification outcomes, blockers/open questions, exact next step. Never include secrets. At the start of a session, load the project handoff with handoff_load and verify it against current git state before trusting it.
 - Treat vision analysis explicitly injected by a separate model as external visual evidence, not as the user's own words.
 - When a browser subagent returns an absolute screenshot path, call present_image so it opens in the user's image viewer. Never present a local screenshot as a Markdown link.
 - Do not delegate trivial work or delegate to the same model merely to repeat your own analysis.
-- Before every final answer for a non-trivial run, publish one audit. On OpenCode, call `orchestra-report` exactly once and copy its returned summary into the final answer. On another harness, use its native session telemetry when exposed and print the same fields directly; mark unsupported fields `unavailable`. Pass `DONE` only when every promised verification completed successfully; pass `PARTIAL` when useful work landed but any promised proof failed, was skipped, or is unavailable; pass `FAILED` when the requested outcome was not delivered. Include every failed or unavailable check in `blockers`. Never replace unavailable telemetry with an estimate.
+- Before every final answer for a non-trivial run, publish one audit. On
+  OpenCode, call `orchestra-report` exactly once and copy its returned summary
+  into the final answer. Report proof as acceptance criterion, method, observed
+  result, and direct evidence. A command name or green exit code alone is a
+  smoke check, not proof of user behavior. For development, `DONE` requires a
+  completed dev-lead workflow and independent dev-auditor session. Material
+  user-facing UI also requires product-designer and frontend-qa sessions with
+  visual evidence. On another harness, use its native session telemetry when
+  exposed and print the same fields directly; mark unsupported fields
+  `unavailable`. Pass `DONE` only when every promised verification completed
+  successfully; pass `PARTIAL` when useful work landed but any promised proof
+  failed, was skipped, or is unavailable; pass `FAILED` when the requested
+  outcome was not delivered. Include every failed or unavailable check in
+  `blockers`. Never replace unavailable telemetry with an estimate.
 
 ## Dynamic agent factory protocol
 

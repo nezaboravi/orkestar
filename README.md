@@ -22,7 +22,8 @@ Orkestar deliberately chooses constraints over agent theatre:
 - agents are created for one job and end when that job is done;
 - the cheapest verified capable model is selected after permissions;
 - planners and auditors do not edit, and executors do not approve themselves;
-- project writes require independent verification;
+- development writes go through the complete dev-lead workflow and require an
+  independent dev-auditor verdict;
 - destructive operations and external writes stop at a human boundary;
 - unavailable providers fall back honestly instead of silently pretending;
 - a result without direct evidence is not complete.
@@ -192,8 +193,10 @@ and handoffs. Every mirrored todo includes the full Taskavel task URL. If a
 public user has no Taskavel access, Solo todos are an explicitly unsynced local
 fallback and the tracker adapter can be replaced in `orchestra.json`.
 The setup wizard can start the selected harness's native browser authorization.
-OAuth still requires the user to approve the Taskavel connection; Orkestar does
-not copy or inspect tokens. `lenka connect taskavel` repeats that step later.
+Orkestar registers `https://taskavel.com/mcp/taskavel` under the exact name
+`taskavel`, invokes that client's native OAuth command, and then continues in
+the same project. It never asks for a client ID, copies a token, or inspects a
+credential. `lenka connect taskavel` repeats that step later.
 If optional Taskavel setup cannot be completed, Lenka reports the exact problem
 and still opens the selected workspace. Existing invalid MCP configuration is
 left untouched instead of being overwritten.
@@ -400,6 +403,21 @@ The orchestra offers one compact plan choice, then continues without routine
 approval prompts. A non-destructive external write named in the request, such
 as a Laravel Cloud deployment, is already authorized. Destructive operations
 and unrequested external effects still stop at a human boundary.
+
+For development work, Lenka cannot directly substitute a generic implementer
+or verifier when a team phase fails. The development lead must coordinate the
+required design, plan, build, verification, visual QA, and independent audit
+roles. A run cannot report `DONE` unless the audit trail records the lead and
+auditor, plus product design and frontend QA whenever the acceptance criteria
+require material UI work.
+
+`php artisan migrate:fresh --seed`, `php artisan test --compact`,
+`php artisan route:list`, Pint, and static analysis are useful supporting
+checks. They do not prove the requested behavior on their own. Real proof maps
+every acceptance criterion to an independent method, the observed result, and
+direct evidence. For a shop, for example, that includes customer journeys,
+validation and authorization failures, persisted data and stock invariants,
+and visual/browser evidence on the relevant viewports.
 
 ## Dynamic agent factory
 

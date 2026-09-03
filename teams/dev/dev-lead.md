@@ -20,6 +20,7 @@ permission:
     dev-builder: allow
     dev-tester: allow
     dev-auditor: allow
+    frontend-qa: allow
   skill: deny
 ---
 
@@ -68,7 +69,12 @@ dependencies, migrations, or architecture changes.
    Classify failures before a repair. Only scoped failures go to `dev-builder`
    (max 3 rounds); ambiguous or unrelated failures are reported, then escalate
    when necessary.
-4. **PROVE** — delegate to `dev-auditor`: independent check — tests, linters,
+4. **VISUAL PROOF WHEN UI CHANGED** — delegate to `frontend-qa` for every new
+   or materially changed user-facing screen. Exercise the primary journey and
+   relevant error/permission states at desktop and mobile sizes; inspect
+   console and failed network requests; return screenshot paths and observed
+   behavior. Missing browser capability makes the run `PARTIAL`, never `DONE`.
+5. **PROVE** — delegate to `dev-auditor`: independent check — tests, linters,
    static analysis, comparison against the plan. The auditor must confirm
    completion with evidence, not opinion.
 
@@ -90,4 +96,15 @@ dependencies, migrations, or architecture changes.
   structured report: goal, what was tried, exact failures, current diff.
 - The final report must contain: what was built, how it was verified, what the
   auditor proved, what is left open (if anything). No "trust me" — evidence only.
+- A list of successful commands is not proof. Map every acceptance criterion to
+  an independent method, observed result, and direct artifact or output. For a
+  CRUD or commerce flow, include successful journeys, validation failures,
+  authorization boundaries, persistence/data-integrity postconditions, and
+  browser behavior where applicable.
+- A new user-facing product or screen always requires both product-designer and
+  frontend-qa. The lead may not classify such work as a small visual fix.
+- Never return `DONE` without a completed dev-auditor result. If any required
+  phase is missing, empty, failed, or unavailable, return `PARTIAL` or `FAILED`
+  with the exact blocker; do not ask Lenka to finish the work through another
+  agent.
 - Never invent results. If something cannot be proven, say so.
