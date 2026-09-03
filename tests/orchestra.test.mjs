@@ -503,6 +503,15 @@ test('OpenCode installation includes the exact run audit tool', () => {
   assert.ok(plan.operations.some((item) => item.target === path.join(project, '.opencode', 'tools', 'browser-discovery.ts')));
 });
 
+test('Taskavel remains the durable record while Solo is an execution mirror', () => {
+  const config = JSON.parse(fs.readFileSync(path.join(repoRoot, 'orchestra.json'), 'utf8'));
+  assert.equal(config.coordination.systemOfRecord, 'taskavel');
+  assert.equal(config.coordination.taskavelUnavailable, 'solo-local-fallback');
+  assert.equal(config.coordination.crossHarnessTaskavelViaSolo, true);
+  assert.equal(config.coordination.solo.scratchpads, 'session-working-memory');
+  assert.equal(config.coordination.solo.todos, 'taskavel-linked-execution-mirror');
+});
+
 test('doctor does not call a CLI-only clean room ready without models', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-orchestra-no-models-'));
   assert.equal(silently(() => main(['doctor', '--home', home])), 1);

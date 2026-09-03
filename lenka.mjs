@@ -8,6 +8,8 @@ import readline from 'node:readline/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { herdrSessionName } from './session-name.mjs';
+import { launcherArgs } from './harness-launcher.mjs';
+import { launchInSolo } from './solo-workspace.mjs';
 
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 const harnesses = ['auto', 'codex', 'claude', 'kimi', 'opencode'];
@@ -16,7 +18,7 @@ function usage() {
   console.log(`Lenka — your agent orchestra
 
 Usage:
-  lenka up [auto|codex|claude|kimi|opencode] [options]
+  lenka up [solo] [auto|codex|claude|kimi|opencode] [options]
   lenka status [--project PATH]
   lenka report last [--project PATH]
   lenka doctor [codex|claude|kimi|opencode] [--project PATH]
@@ -25,13 +27,16 @@ Options:
   --project PATH       Project to open (default: current directory)
   --ask                Choose the harness interactively
   --herdr              Run inside Herdr (default)
-  --direct             Open the selected CLI without Herdr
+  --solo               Run inside Solo
+  --direct             Open the selected CLI without a workspace app
   --no-launch          Install and verify without opening the selected CLI
   --conflict POLICY    fail, skip, or backup (default for up: backup)
   --help               Show this help
 
 Examples:
   lenka up
+  lenka up solo
+  lenka up solo codex
   lenka up codex
   lenka up kimi
   lenka up opencode
@@ -51,6 +56,7 @@ function parse(input) {
   let project = process.cwd();
   let ask = false;
   let herdr = true;
+  let workspace = 'herdr';
   let noLaunch = false;
   let conflict = 'backup';
   let reportTarget = null;
@@ -58,13 +64,22 @@ function parse(input) {
   while (args.length) {
     const arg = args.shift();
     if (harnesses.includes(arg) && !harness) harness = arg;
+    else if (arg === 'solo' || arg === '--solo') {
+      workspace = 'solo';
+      herdr = false;
+    }
     else if (arg === '--project') {
       const value = args.shift();
       if (!value) throw new Error('--project requires a path');
       project = path.resolve(value);
     } else if (arg === '--ask') ask = true;
-    else if (arg === '--herdr') herdr = true;
-    else if (arg === '--direct') herdr = false;
+    else if (arg === '--herdr') {
+      workspace = 'herdr';
+      herdr = true;
+    } else if (arg === '--direct') {
+      workspace = 'direct';
+      herdr = false;
+    }
     else if (arg === '--no-launch') noLaunch = true;
     else if (arg === '--conflict') {
       conflict = args.shift();
@@ -72,7 +87,7 @@ function parse(input) {
     } else if (arg === '--help' || arg === '-h') return { command: 'help' };
     else throw new Error(`unknown argument: ${arg}`);
   }
-  return { command, harness, project, ask, herdr, noLaunch, conflict, reportTarget };
+  return { command, harness, project, ask, herdr, workspace, noLaunch, conflict, reportTarget };
 }
 
 function homeDirectory() {
@@ -178,6 +193,14 @@ function launchInstalledRuntime(runtime, options) {
   console.log('Runtime: previously verified; no reinstall or model probe');
   if (options.noLaunch) return 0;
 
+  if (options.workspace === 'solo') {
+    const launched = launchInSolo(runtime, options, { locate: executable, launcherArgs });
+    console.log(`Workspace: Solo (${launched.project.name})`);
+    console.log(`Agent: Lenka — Orkestar (${runtime.harness})`);
+    console.log(`Process: ${launched.process.id}`);
+    return 0;
+  }
+
   const env = {
     AGENT_ORCHESTRA_HARNESS: runtime.harness,
     AGENT_ORCHESTRA_HARNESS_BINARY: runtime.binary,
@@ -235,14 +258,22 @@ async function up(options) {
       throw new Error('Windows currently supports lenka up with OpenCode only');
     }
     const windows = ['-Project', options.project, '-ProjectOnly', '-Conflict', options.conflict];
-    if (options.noLaunch) windows.push('-NoLaunch');
-    if (options.herdr) windows.push('-UseHerdr');
-    return run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repoRoot, 'bootstrap.ps1'), ...windows]);
+    if (options.noLaunch || options.workspace === 'solo') windows.push('-NoLaunch');
+    if (options.workspace === 'herdr') windows.push('-UseHerdr');
+    const installedStatus = run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repoRoot, 'bootstrap.ps1'), ...windows]);
+    if (installedStatus !== 0 || options.noLaunch || options.workspace !== 'solo') return installedStatus;
+    const runtime = selectInstalledRuntime(options.project, harness);
+    if (!runtime) throw new Error(`no verified ${harness} runtime exists after installation`);
+    return launchInstalledRuntime(runtime, options);
   }
   const common = ['--project', options.project, '--project-only', '--conflict', options.conflict, '--harness', harness];
-  if (options.noLaunch) common.push('--no-launch');
-  if (options.herdr) common.push('--herdr');
-  return run('sh', [path.join(repoRoot, 'bootstrap.sh'), ...common]);
+  if (options.noLaunch || options.workspace === 'solo') common.push('--no-launch');
+  if (options.workspace === 'herdr') common.push('--herdr');
+  const installedStatus = run('sh', [path.join(repoRoot, 'bootstrap.sh'), ...common]);
+  if (installedStatus !== 0 || options.noLaunch || options.workspace !== 'solo') return installedStatus;
+  const runtime = selectInstalledRuntime(options.project, harness);
+  if (!runtime) throw new Error(`no verified ${harness} runtime exists after installation`);
+  return launchInstalledRuntime(runtime, options);
 }
 
 function status(options) {

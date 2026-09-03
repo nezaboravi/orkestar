@@ -11,8 +11,9 @@ const cli = path.join(repoRoot, 'lenka.mjs');
 test('Lenka CLI exposes the portable orchestration commands', () => {
   const result = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /lenka up \[auto\|codex\|claude\|kimi\|opencode\]/);
+  assert.match(result.stdout, /lenka up \[solo\] \[auto\|codex\|claude\|kimi\|opencode\]/);
   assert.match(result.stdout, /--herdr/);
+  assert.match(result.stdout, /--solo/);
   assert.match(result.stdout, /--direct/);
   assert.match(result.stdout, /lenka status/);
   assert.match(result.stdout, /lenka report last/);
@@ -66,12 +67,16 @@ test('Lenka defaults up to auto and the current project', async () => {
   assert.equal(parsed.project, process.cwd());
   assert.equal(parsed.conflict, 'backup');
   assert.equal(parsed.herdr, true);
+  assert.equal(parsed.workspace, 'herdr');
 });
 
 test('Lenka accepts terminal punctuation and supports direct mode', async () => {
   const { parse } = await import('../lenka.mjs');
   assert.equal(parse(['up.']).command, 'up');
   assert.equal(parse(['UP', '--direct']).herdr, false);
+  assert.equal(parse(['up', 'solo', 'codex']).workspace, 'solo');
+  assert.equal(parse(['up', 'solo', 'codex']).harness, 'codex');
+  assert.equal(parse(['up', 'codex', '--solo']).workspace, 'solo');
 });
 
 test('Lenka reuses the current Herdr pane instead of starting nested Herdr', async () => {

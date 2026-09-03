@@ -10,7 +10,8 @@ implicit dependency.
 2. **Orchestra** — `orchestra.json`, agent definitions, and team rules define
    roles, workflow, permissions, model classes, evidence, and escalation.
 3. **Launcher** — `lenka up` reuses a verified route and starts the selected
-   CLI in a stable Herdr workspace; `--direct` bypasses the workspace.
+   CLI in a stable Herdr workspace; `lenka up solo` uses Solo as an optional
+   visual control plane, while `--direct` bypasses a workspace.
 4. **Harness** — Codex, Claude Code, Kimi Code, or OpenCode executes the same
    team rules.
 5. **Proof** — tests, static checks, independent audit, cost records, and the
@@ -50,9 +51,22 @@ credentials. It prevents the primary orchestrator from spending tokens on
 model inventory and agent-definition discovery during ordinary work; route
 probing remains an installer and doctor responsibility.
 
-Desktop clients are optional views and manual workspaces. The autonomous path
-must work without a desktop application so the same repository can be tested
-on macOS, Linux, and Windows.
+Desktop clients are optional views and manual workspaces. Solo is a first-class
+optional execution control plane: it imports the current project and launches
+the already verified harness/model as `Lenka — Orkestar`. It does not choose a
+provider or replace adapter permissions. The autonomous path still works
+without a desktop application so the same repository can be tested on macOS,
+Linux, and Windows.
+
+Taskavel is the durable coordination system of record when its authenticated
+tools are available. Solo scratchpads hold session working memory; Solo todos
+mirror the currently executing Taskavel work with the full Taskavel URL and add
+local process ownership, blockers, locks, and handoffs. A Solo completion never
+silently closes Taskavel. When Taskavel is unavailable, Solo is an explicitly
+unsynced local fallback rather than a second hidden source of truth.
+When the conductor's harness lacks Taskavel but Solo is present, Lenka may
+dispatch the Taskavel envelope through another harness only after both its
+economy model route and Taskavel authentication are proven on that machine.
 
 An explicit user instruction to start work authorizes normal team dispatch.
 The orchestra offers one compact plan choice, then continues without routine

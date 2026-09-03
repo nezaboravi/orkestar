@@ -11,6 +11,17 @@
   "portability": {
     "excludedSkillPaths": ["omarchy"]
   },
+  "coordination": {
+    "systemOfRecord": "taskavel",
+    "workingMemory": "project-handoff",
+    "taskavelUnavailable": "solo-local-fallback",
+    "crossHarnessTaskavelViaSolo": true,
+    "solo": {
+      "role": "execution-control-plane",
+      "scratchpads": "session-working-memory",
+      "todos": "taskavel-linked-execution-mirror"
+    }
+  },
   "team": {
     "name": "development",
     "entrypoint": "dev-lead",

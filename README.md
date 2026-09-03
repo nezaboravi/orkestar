@@ -106,6 +106,8 @@ command into the user's local executable directory. When that directory is on
 
 ```sh
 lenka up
+lenka up solo
+lenka up solo codex
 lenka up codex
 lenka up claude
 lenka up kimi
@@ -122,6 +124,30 @@ coordination model; one-run workers independently use economy, mid, or
 strongest routes according to their capability profile. Each absolute project
 path gets its own stable Herdr session. Add `--direct` to bypass Herdr without
 changing the selected harness, model routes, or orchestration rules.
+
+Use `lenka up solo` to import the current directory into a running Solo app and
+launch `Lenka — Orkestar` there with the same verified harness and model route.
+Solo is a workspace, not a provider: `lenka up solo codex` still uses only the
+authenticated Codex route from that machine. Solo must be running with its HTTP
+API enabled. Its CLI can be on `PATH`; on macOS Orkestar also detects the
+bundled CLI in the standard Solo application location.
+
+Solo currently provides public desktop builds for macOS and Windows. On Linux,
+including Arch/Omarchy, use the default Herdr workspace or `--direct`; the
+orchestra, agents, model routing, Taskavel policy, verification, and audit
+contract remain the same.
+
+Solo and the selected CLI must be allowed to read the project directory. On
+macOS, a checkout inside a protected folder such as `Documents` can require
+Files and Folders permission for Solo; Orkestar detects an agent that exits
+during startup and reports its real terminal output instead of claiming READY.
+
+Taskavel remains Orkestar's durable system of record when its authenticated MCP
+tools are available. Inside Solo, scratchpads hold temporary working context
+and todos mirror active Taskavel work for process ownership, blockers, locks,
+and handoffs. Every mirrored todo includes the full Taskavel task URL. If a
+public user has no Taskavel access, Solo todos are an explicitly unsynced local
+fallback and the tracker adapter can be replaced in `orchestra.json`.
 
 Codex launches are deterministic in both dimensions: the verified model and
 the reasoning effort are pinned by the orchestra. Coordination, planning, and

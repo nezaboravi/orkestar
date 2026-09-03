@@ -20,6 +20,26 @@ the project-specific persistent session without changing the harness. Unix does 
 `.zshrc`, `.bashrc`, or profile files. Windows bootstrap also keeps its runtime
 inside the orchestra directory instead of depending on Chocolatey or Scoop.
 
+## Optional Solo workspace
+
+Solo is an optional visual execution control plane, not a harness or model
+provider. `lenka up solo` uses the verified harness already selected on that
+machine; `lenka up solo codex` requests Codex explicitly. Solo must be running
+with its HTTP API enabled. Orkestar discovers `solo` on `PATH`, the `SOLO_CLI`
+override, and the standard bundled macOS CLI. On Windows, install Solo's CLI
+launcher on `PATH` from Solo settings before using this workspace.
+
+Solo currently provides public desktop builds for macOS and Windows. There is
+no public Linux desktop build, so Linux and Omarchy continue to use Herdr or
+the direct CLI path. This affects only the workspace view; agent definitions,
+model routing, Taskavel coordination, verification, and audit rules remain
+portable.
+
+Taskavel remains the durable system of record when authenticated. Solo
+scratchpads are session working memory and Solo todos are a local execution
+mirror containing the full Taskavel URL. Without Taskavel access, Solo todos
+must be marked as an unsynced local fallback.
+
 CI exercises Ubuntu and a clean Arch Linux container as distinct Linux-family
 proofs. Arch is the reproducible compatibility base for Omarchy; the final
 Omarchy claim still requires a run on the user's physical Omarchy machine.
