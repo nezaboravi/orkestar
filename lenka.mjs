@@ -12,6 +12,7 @@ import { launcherArgs } from './harness-launcher.mjs';
 import { findSoloCli, launchInSolo } from './solo-workspace.mjs';
 import {
   commandForHarness,
+  connectOptionalTaskavel,
   connectTaskavel,
   harnessLabels,
   harnessOrder,
@@ -292,8 +293,13 @@ async function setup(options, { continueToLaunch = false } = {}) {
     const target = savePreferences({ harness, workspace: workspace.id, taskavel: wantsTaskavel ? 'requested' : 'later' }, home);
     console.log(`\nSaved preferences: ${target}`);
     if (wantsTaskavel) {
-      const result = connectTaskavel(harness, { home, locate: executable, run: runInteractive, capture: runCaptured, cwd: options.project });
-      console.log(result.verification);
+      const result = connectOptionalTaskavel(harness, { home, locate: executable, run: runInteractive, capture: runCaptured, cwd: options.project });
+      if (result.warning) {
+        savePreferences({ harness, workspace: workspace.id, taskavel: 'later' }, home);
+        console.warn(`WARNING: ${result.warning}`);
+      } else {
+        console.log(result.verification);
+      }
     }
     if (continueToLaunch) {
       console.log('\nSetup saved. Starting Lenka with your choices…');

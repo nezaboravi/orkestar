@@ -191,6 +191,9 @@ fallback and the tracker adapter can be replaced in `orchestra.json`.
 The setup wizard can start the selected harness's native browser authorization.
 OAuth still requires the user to approve the Taskavel connection; Orkestar does
 not copy or inspect tokens. `lenka connect taskavel` repeats that step later.
+If optional Taskavel setup cannot be completed, Lenka reports the exact problem
+and still opens the selected workspace. Existing invalid MCP configuration is
+left untouched instead of being overwritten.
 
 Codex launches are deterministic in both dimensions: the verified model and
 the reasoning effort are pinned by the orchestra. Coordination, planning, and

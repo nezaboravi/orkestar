@@ -7,6 +7,8 @@ import test from 'node:test';
 import {
   commandForHarness,
   configureCursorTaskavel,
+  connectOptionalTaskavel,
+  connectTaskavel,
   inspectHarnesses,
   loadPreferences,
   recommendHarness,
@@ -68,4 +70,34 @@ test('Cursor Taskavel setup preserves existing MCP servers', () => {
   const config = JSON.parse(fs.readFileSync(path.join(directory, 'mcp.json'), 'utf8'));
   assert.equal(config.mcpServers.existing.url, 'https://example.test/mcp');
   assert.equal(config.mcpServers.taskavel.url, 'https://taskavel.com/mcp/taskavel');
+});
+
+test('Cursor Taskavel setup trusts Cursor inventory before parsing its configuration', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cursor-taskavel-existing-'));
+  const directory = path.join(home, '.cursor');
+  fs.mkdirSync(directory, { recursive: true });
+  const existing = '{"mcpServers":{"taskavel":{"url":"https://taskavel.com/mcp/taskavel"}}}\n// Cursor JSONC';
+  fs.writeFileSync(path.join(directory, 'mcp.json'), existing);
+  const calls = [];
+  const result = connectTaskavel('cursor', {
+    home,
+    locate: () => '/bin/agent',
+    capture: () => ({ status: 0, stdout: 'taskavel: not loaded (needs approval)', stderr: '' }),
+    run: (binary, args) => { calls.push([binary, args]); return 0; },
+  });
+  assert.equal(result.configured, true);
+  assert.deepEqual(calls, [['/bin/agent', ['mcp', 'login', 'taskavel']]]);
+  assert.equal(fs.readFileSync(path.join(directory, 'mcp.json'), 'utf8'), existing);
+});
+
+test('optional Taskavel failure never blocks the selected workspace launch', () => {
+  const result = connectOptionalTaskavel('cursor', {
+    home: '/unused',
+    locate: () => '/bin/agent',
+    capture: () => ({ status: 0, stdout: '', stderr: '' }),
+    run: () => 0,
+  });
+  assert.equal(result.configured, false);
+  assert.match(result.warning, /Lenka will continue without Taskavel/);
+  assert.match(result.warning, /lenka connect taskavel cursor/);
 });

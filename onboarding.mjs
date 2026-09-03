@@ -156,7 +156,10 @@ function connectTaskavel(harness, { home = os.homedir(), locate, run, capture = 
   if (!binary) throw new Error(missingHarnessMessage(harness));
   const endpoint = 'https://taskavel.com/mcp/taskavel';
   if (harness === 'cursor') {
-    configureCursorTaskavel(home);
+    const listed = capture(binary, ['mcp', 'list'], cwd);
+    if (!/\btaskavel\b/i.test(`${listed.stdout || ''}\n${listed.stderr || ''}`)) {
+      configureCursorTaskavel(home);
+    }
     const status = run(binary, ['mcp', 'login', 'taskavel'], cwd);
     return { configured: true, loginStarted: status === 0, verification: 'Run `agent mcp list` after browser authorization.' };
   }
@@ -187,9 +190,23 @@ function connectTaskavel(harness, { home = os.homedir(), locate, run, capture = 
   return { configured: false, loginStarted: false, verification: 'Kimi Code does not expose a verified Taskavel MCP setup command in this adapter. Use Codex, Claude Code, Cursor, or OpenCode for Taskavel work.' };
 }
 
+function connectOptionalTaskavel(harness, dependencies) {
+  try {
+    return { ...connectTaskavel(harness, dependencies), warning: null };
+  } catch (error) {
+    return {
+      configured: false,
+      loginStarted: false,
+      verification: null,
+      warning: `Taskavel was not connected: ${error.message}. Lenka will continue without Taskavel. Fix the MCP configuration, then run: lenka connect taskavel ${harness}`,
+    };
+  }
+}
+
 export {
   commandForHarness,
   configureCursorTaskavel,
+  connectOptionalTaskavel,
   connectTaskavel,
   harnessOrder,
   harnessLabels,
