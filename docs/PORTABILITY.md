@@ -9,7 +9,7 @@ Homebrew, and a developer's existing shell configuration are not dependencies.
 | Platform | Entrypoint | Supported architectures | Herdr | Harness |
 |---|---|---|---|---|
 | macOS | `./bootstrap.sh` | Apple silicon, Intel | Solo / Herdr / direct | Cursor / Codex / Claude / Kimi / OpenCode |
-| Linux (glibc, including Arch/Omarchy) | `./bootstrap.sh` | aarch64, x86_64 | Herdr / direct | Cursor / Codex / Claude / Kimi / OpenCode |
+| Linux (glibc, including Arch/Omarchy) | `./bootstrap.sh` | aarch64, x86_64 | Solo / Herdr / direct | Cursor / Codex / Claude / Kimi / OpenCode |
 | Windows | `.\bootstrap.ps1` | x86_64; ARM64 through x86_64 emulation | default ConPTY workspace; `-Direct` bypass | OpenCode (current bootstrap) |
 
 Both entrypoints install runtime files below the selected user's home, prepend
@@ -22,9 +22,11 @@ inside the orchestra directory instead of depending on Chocolatey or Scoop.
 
 ## Friendly setup and detection
 
-`lenka setup` treats the harness and workspace as different decisions. It
-detects installed CLIs, CLI-reported authentication where available, existing
-verified runtime manifests, Solo availability, and Herdr availability. A saved
+The first plain `lenka up` runs setup and treats the harness and workspace as
+different decisions. It detects installed CLIs, CLI-reported authentication
+where available, existing verified runtime manifests, Solo availability, and
+Herdr availability, asks the user, saves the choice, and continues to launch.
+`lenka setup` repeats these questions later. A saved
 valid preference wins. If several authenticated services are possible, setup
 asks which subscription to use instead of comparing prices that providers do
 not expose. Model cost ordering happens inside the chosen adapter.
@@ -43,9 +45,9 @@ with its HTTP API enabled. Orkestar discovers `solo` on `PATH`, the `SOLO_CLI`
 override, and the standard bundled macOS CLI. On Windows, install Solo's CLI
 launcher on `PATH` from Solo settings before using this workspace.
 
-Solo currently provides public desktop builds for macOS and Windows. There is
-no public Linux desktop build, so Linux and Omarchy continue to use Herdr or
-the direct CLI path. This affects only the workspace view; agent definitions,
+When Solo is installed on Linux or Omarchy, Orkestar opens it through its
+registered `solo:` desktop URL handler. If no handler is registered, Herdr and
+the direct CLI path remain available. This affects only the workspace view; agent definitions,
 model routing, Taskavel coordination, verification, and audit rules remain
 portable.
 

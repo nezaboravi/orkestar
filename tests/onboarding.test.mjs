@@ -55,7 +55,7 @@ test('preferences persist harness and workspace without credentials', () => {
 test('workspace detection keeps Solo optional and direct always available', () => {
   const linux = workspaceChoices({ platform: 'linux', soloInstalled: false, herdrInstalled: false });
   assert.equal(linux.find((item) => item.id === 'solo').available, false);
-  assert.match(linux.find((item) => item.id === 'solo').reason, /no public Linux build/);
+  assert.equal(linux.find((item) => item.id === 'solo').reason, 'not installed');
   assert.equal(linux.find((item) => item.id === 'direct').available, true);
 });
 

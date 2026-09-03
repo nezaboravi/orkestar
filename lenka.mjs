@@ -13,6 +13,7 @@ import { findSoloCli, launchInSolo } from './solo-workspace.mjs';
 import {
   commandForHarness,
   connectTaskavel,
+  harnessLabels,
   harnessOrder,
   inspectHarness,
   inspectHarnesses,
@@ -22,6 +23,7 @@ import {
   savePreferences,
   signInArgs,
   workspaceChoices,
+  workspaceLabels,
 } from './onboarding.mjs';
 
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -47,6 +49,9 @@ Options:
   --no-launch          Install and verify without opening the selected CLI
   --conflict POLICY    fail, skip, or backup (default for up: backup)
   --help               Show this help
+
+The first plain \`lenka up\` opens setup so you choose the AI service and
+workspace. Run \`lenka setup\` whenever you want to change those choices.
 
 Examples:
   lenka up
@@ -231,26 +236,29 @@ async function ensureHarnessAuthentication(harness, project, dependencies = {}) 
   if (status.authenticated === false) throw new Error(`${harness} is still not signed in after login`);
 }
 
-async function setup(options) {
+async function setup(options, { continueToLaunch = false } = {}) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('lenka setup requires an interactive terminal');
   const home = homeDirectory();
   const existing = loadPreferences(home);
   const statuses = inspectHarnesses(executable, runCaptured, options.project);
   const verified = [...new Set(manifests(options.project, true).filter((item) => item?.primary?.model).map((item) => item.harness))];
-  const recommended = recommendHarness(statuses, existing, verified);
-  console.log('\nLenka setup');
-  console.log('Harness and workspace are separate choices. You can change either later.\n');
+  const recommended = options.harnessExplicit
+    ? options.harness
+    : recommendHarness(statuses, existing, verified);
+  console.log('\nLet\'s set up Lenka');
+  console.log('First choose the AI service, then where Lenka should open.');
+  console.log('Run `lenka setup` again whenever you want to change either choice.\n');
   for (const status of statuses) {
     const verifiedHere = verified.includes(status.harness);
     const state = verifiedHere ? 'verified model route' : status.evidence;
-    console.log(`- ${status.harness}: ${state}`);
+    console.log(`- ${harnessLabels[status.harness]}: ${state}`);
   }
   const choices = statuses.filter((status) => status.installed).map((status) => status.harness);
   if (!choices.length) throw new Error('No supported AI CLI is installed. Install Cursor, Codex, Claude Code, Kimi Code, or OpenCode first.');
   const prompt = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
-    console.log('\nChoose the AI harness:');
-    choices.forEach((name, index) => console.log(`  ${index + 1}. ${name}${name === recommended ? ' (recommended)' : ''}`));
+    console.log('\nWhich AI service should Lenka use?');
+    choices.forEach((name, index) => console.log(`  ${index + 1}. ${harnessLabels[name]}${name === recommended ? ' (recommended)' : ''}`));
     const defaultIndex = Math.max(0, choices.indexOf(recommended)) + 1;
     const harnessAnswer = (await prompt.question(`Selection [${defaultIndex}]: `)).trim() || String(defaultIndex);
     const harness = choices[Number(harnessAnswer) - 1];
@@ -270,9 +278,10 @@ async function setup(options) {
       soloInstalled: Boolean(findSoloCli(executable, { platform: process.platform, home, environment: process.env })),
       herdrInstalled: Boolean(executable('herdr')),
     });
-    console.log('\nChoose where Lenka opens:');
-    workspaces.forEach((item, index) => console.log(`  ${index + 1}. ${item.id} — ${item.reason}`));
-    const workspaceDefault = existing?.workspace ? workspaces.findIndex((item) => item.id === existing.workspace) + 1 : 2;
+    console.log('\nWhere should Lenka work?');
+    workspaces.forEach((item, index) => console.log(`  ${index + 1}. ${workspaceLabels[item.id]} — ${item.reason}`));
+    const preferredWorkspace = options.workspaceExplicit ? options.workspace : existing?.workspace;
+    const workspaceDefault = preferredWorkspace ? workspaces.findIndex((item) => item.id === preferredWorkspace) + 1 : 2;
     const workspaceAnswer = (await prompt.question(`Selection [${workspaceDefault > 0 ? workspaceDefault : 2}]: `)).trim() || String(workspaceDefault > 0 ? workspaceDefault : 2);
     const workspace = workspaces[Number(workspaceAnswer) - 1];
     if (!workspace) throw new Error('invalid workspace selection');
@@ -286,8 +295,13 @@ async function setup(options) {
       const result = connectTaskavel(harness, { home, locate: executable, run: runInteractive, capture: runCaptured, cwd: options.project });
       console.log(result.verification);
     }
-    console.log(`\nReady. Run: lenka up`);
-    console.log(`Override any time: lenka up ${harness} --direct`);
+    if (continueToLaunch) {
+      console.log('\nSetup saved. Starting Lenka with your choices…');
+    } else {
+      console.log('\nReady. Run: lenka up');
+      console.log('Change these choices any time with: lenka setup');
+      console.log(`One-time override: lenka up ${harness} --direct`);
+    }
     return 0;
   } finally {
     prompt.close();
@@ -380,7 +394,16 @@ async function up(options) {
   if (!fs.existsSync(options.project) || !fs.statSync(options.project).isDirectory()) {
     throw new Error(`project directory does not exist: ${options.project}`);
   }
-  const preferences = loadPreferences(homeDirectory());
+  let preferences = loadPreferences(homeDirectory());
+  if (needsFirstRunSetup(options, preferences)) {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) {
+      throw new Error('No saved Lenka setup exists. Run `lenka setup` in an interactive terminal, or choose explicitly, for example: lenka up codex --direct');
+    }
+    const setupStatus = await setup(options, { continueToLaunch: true });
+    if (setupStatus !== 0) return setupStatus;
+    preferences = loadPreferences(homeDirectory());
+    if (!preferences) throw new Error('Lenka setup finished without saving preferences');
+  }
   if (!options.workspaceExplicit && preferences?.workspace) {
     options.workspace = preferences.workspace;
     options.herdr = preferences.workspace === 'herdr';
@@ -414,6 +437,10 @@ async function up(options) {
   const runtime = selectInstalledRuntime(options.project, harness);
   if (!runtime) throw new Error(`no verified ${harness} runtime exists after installation`);
   return launchInstalledRuntime(runtime, options);
+}
+
+function needsFirstRunSetup(options, preferences) {
+  return !preferences && !(options.harnessExplicit && options.workspaceExplicit);
 }
 
 function status(options) {
@@ -569,4 +596,4 @@ if (invokedFile === fileURLToPath(import.meta.url)) {
   }
 }
 
-export { ensureHarnessAuthentication, main, manifests, parse, selectInstalledRuntime, setup, shouldOpenHerdr };
+export { ensureHarnessAuthentication, main, manifests, needsFirstRunSetup, parse, selectInstalledRuntime, setup, shouldOpenHerdr };

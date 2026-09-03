@@ -16,6 +16,20 @@ const harnessCommands = {
   opencode: 'opencode',
 };
 
+const harnessLabels = {
+  cursor: 'Cursor Agent (uses your Cursor subscription)',
+  codex: 'Codex (uses your ChatGPT/OpenAI account)',
+  claude: 'Claude Code',
+  kimi: 'Kimi Code',
+  opencode: 'OpenCode',
+};
+
+const workspaceLabels = {
+  solo: 'Solo desktop',
+  herdr: 'Herdr terminal workspace',
+  direct: 'Current terminal',
+};
+
 function preferencesPath(home = os.homedir()) {
   return path.join(home, '.agent-orchestra', 'preferences.json');
 }
@@ -98,7 +112,7 @@ function recommendHarness(statuses, preferences = null, verifiedHarnesses = []) 
 
 function workspaceChoices({ platform = process.platform, soloInstalled = false, herdrInstalled = false } = {}) {
   return [
-    { id: 'solo', available: soloInstalled, reason: soloInstalled ? 'installed' : (platform === 'linux' ? 'Solo has no public Linux build' : 'not installed') },
+    { id: 'solo', available: soloInstalled, reason: soloInstalled ? 'installed' : 'not installed' },
     { id: 'herdr', available: herdrInstalled, reason: herdrInstalled ? 'installed' : 'will be installed by Orkestar' },
     { id: 'direct', available: true, reason: 'uses the current terminal' },
   ];
@@ -178,6 +192,7 @@ export {
   configureCursorTaskavel,
   connectTaskavel,
   harnessOrder,
+  harnessLabels,
   inspectHarness,
   inspectHarnesses,
   loadPreferences,
@@ -186,5 +201,6 @@ export {
   recommendHarness,
   savePreferences,
   signInArgs,
+  workspaceLabels,
   workspaceChoices,
 };

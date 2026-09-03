@@ -73,6 +73,16 @@ test('Lenka defaults up to auto and the current project', async () => {
   assert.equal(parsed.workspaceExplicit, false);
 });
 
+test('first use asks for every missing choice while a fully explicit launch remains scriptable', async () => {
+  const { needsFirstRunSetup, parse } = await import('../lenka.mjs');
+  assert.equal(needsFirstRunSetup(parse(['up']), null), true);
+  assert.equal(needsFirstRunSetup(parse(['up']), { harness: 'codex', workspace: 'direct' }), false);
+  assert.equal(needsFirstRunSetup(parse(['up', 'cursor']), null), true);
+  assert.equal(needsFirstRunSetup(parse(['up', '--direct']), null), true);
+  assert.equal(needsFirstRunSetup(parse(['up', '--ask']), null), true);
+  assert.equal(needsFirstRunSetup(parse(['up', 'cursor', '--direct']), null), false);
+});
+
 test('Lenka accepts terminal punctuation and supports direct mode', async () => {
   const { parse } = await import('../lenka.mjs');
   assert.equal(parse(['up.']).command, 'up');

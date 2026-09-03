@@ -52,8 +52,9 @@ already defines the work, and for routine backend or small visual fixes.
 
 The bootstrap detects the platform, installs an isolated Node.js runtime when
 needed, detects an authenticated harness, installs the team, verifies a real
-model response, and installs Herdr. The friendly `lenka setup` wizard then
-saves separate choices for the AI harness, workspace, and optional Taskavel login.
+model response, and installs Herdr. On the first plain `lenka up`, a friendly
+wizard asks which AI service to use, where Lenka should work, and whether to
+connect Taskavel. It saves those choices instead of guessing.
 It does not depend on Homebrew, Laravel Herd, a particular username, or a
 machine-specific project directory.
 
@@ -97,7 +98,6 @@ macOS or Linux:
 
 ```sh
 cd /path/to/project
-"$HOME/.local/bin/lenka" setup
 "$HOME/.local/bin/lenka" up
 ```
 
@@ -105,7 +105,6 @@ Windows PowerShell:
 
 ```powershell
 Set-Location C:\path\to\project
-& "$HOME\.local\lenka.cmd" setup
 & "$HOME\.local\lenka.cmd" up
 ```
 
@@ -130,10 +129,11 @@ lenka doctor
 lenka connect taskavel
 ```
 
-`lenka setup` detects installed CLIs, their login state where the CLI exposes
-it, and existing live-verified runtime manifests. A previous valid preference
-is recommended. If several services are valid, the wizard asks once instead of
-guessing which subscription the user wants to spend. Preferences contain no
+The first plain `lenka up` detects installed CLIs, their login state where the
+CLI exposes it, and existing live-verified runtime manifests. It asks which AI
+subscription to use and whether to open Lenka in Solo, Herdr, or the current
+terminal, then continues directly into Lenka. Run `lenka setup` at any time to
+repeat the same questions and change the saved choices. Preferences contain no
 credentials and live at `~/.agent-orchestra/preferences.json`.
 
 `lenka up` reuses that saved harness and workspace. An explicit harness keeps
@@ -142,6 +142,12 @@ coordination model; one-run workers independently use economy, mid, or
 strongest routes according to their capability profile. Each absolute project
 path gets its own stable Herdr session. Add `--direct` to bypass Herdr without
 changing the selected harness, model routes, or orchestration rules.
+
+The **Cursor Agent** service choice uses Cursor's official `agent` CLI and the
+user's Cursor subscription. It is not the same as opening the Cursor desktop
+editor. Orkestar does not currently claim that it can start Lenka inside the
+desktop editor's Agent panel; use Cursor Agent directly, or run it inside Solo
+or Herdr.
 
 Use `lenka up solo` to start Solo when needed, import the current directory,
 show that exact project in the Solo window, and launch `Lenka — Orkestar` there
@@ -215,11 +221,12 @@ without a write. The lower-level `orchestra.mjs install` command also defaults
 to `fail` for manual inspection and controlled integration.
 
 Credentials are never copied between tools. The wizard owns the durable choice.
-During a bootstrap without preferences, Unix tries Cursor, Codex, Claude Code,
-Kimi Code, then OpenCode only as a discovery fallback. A harness
-is selected only after a minimal live response succeeds. If none works,
-verification stops and asks the user to sign in; it never claims READY from a
-model list alone.
+During bootstrap, Unix may probe Cursor, Codex, Claude Code, Kimi Code, and
+OpenCode to establish which routes really work. That discovery does not become
+the user's preference: the first plain `lenka up` asks before choosing which
+subscription future runs should spend. A harness is considered executable only
+after a minimal live response succeeds. If none works, verification stops and
+asks the user to sign in; it never claims READY from a model list alone.
 
 Choose a harness explicitly when wanted:
 
