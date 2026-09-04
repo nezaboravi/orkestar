@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as module from 'node:module';
 import vm from 'node:vm';
-import { join } from 'node:path';
+import { posix } from 'node:path';
+const { join } = posix;
 
 test('Solo collector validates native scope and complete revision-bound packets', {
   skip: typeof module.stripTypeScriptTypes !== 'function' && 'Requires Node TypeScript stripping support',
@@ -35,6 +36,7 @@ test('Solo collector validates native scope and complete revision-bound packets'
     },
   });
   const source = module.stripTypeScriptTypes(readFileSync(new URL('../adapters/opencode/tools/orchestra-solo-result.ts', import.meta.url), 'utf8'))
+    .replace(/\r\n/g, '\n')
     .replace(/^import .*\n/gm, '')
     .replace(/^const executeFile = promisify\(execFile\)\n/m, '')
     .replace('export default tool(', 'globalThis.collect = tool(');

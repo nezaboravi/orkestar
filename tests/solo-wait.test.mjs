@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as module from 'node:module';
 import vm from 'node:vm';
-import { join } from 'node:path';
+import { posix } from 'node:path';
+const { join } = posix;
 
 test('native Solo wait is bounded, scoped and does not turn idle into success', {
   skip: typeof module.stripTypeScriptTypes !== 'function' && 'Requires TypeScript stripping',
@@ -26,6 +27,7 @@ test('native Solo wait is bounded, scoped and does not turn idle into success', 
     executeFile: async (...args) => { calls.push(args); return { stdout: JSON.stringify([row]) }; },
   });
   const source = module.stripTypeScriptTypes(readFileSync(new URL('../adapters/opencode/tools/orchestra-solo-wait.ts', import.meta.url), 'utf8'))
+    .replace(/\r\n/g, '\n')
     .replace(/^import .*\n/gm, '').replace(/^const executeFile = promisify\(execFile\)\n/m, '')
     .replace('export default tool(', 'globalThis.wait = tool(');
   vm.runInContext(source, context);

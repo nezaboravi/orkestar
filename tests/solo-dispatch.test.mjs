@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as module from 'node:module';
 import vm from 'node:vm';
-import { join, basename, isAbsolute } from 'node:path';
+import { posix } from 'node:path';
+const { join, basename, isAbsolute } = posix;
 
 test('Solo dispatch is profile-bound and fail-closed around native OpenCode identity', {
   skip: typeof module.stripTypeScriptTypes !== 'function' && 'Requires Node TypeScript stripping support',
@@ -41,6 +42,7 @@ test('Solo dispatch is profile-bound and fail-closed around native OpenCode iden
     },
   });
   const source = module.stripTypeScriptTypes(readFileSync(new URL('../adapters/opencode/tools/orchestra-solo-dispatch.ts', import.meta.url), 'utf8'))
+    .replace(/\r\n/g, '\n')
     .replace(/^import .*\n/gm, '').replace(/^const executeFile = promisify\(execFile\)\n/m, '').replace('export default tool(', 'globalThis.dispatch = tool(');
   vm.runInContext(source, context);
   const execute = value => context.dispatch.execute(value ?? args, { directory: '/project', sessionID: 'owner-session' });

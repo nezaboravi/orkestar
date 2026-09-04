@@ -565,7 +565,7 @@ test('project runtime manifest gives Lenka exact adapter-local routes without cr
 
 test('OpenCode conductor cannot bypass checked Solo dispatch through raw process control', () => {
   const plan = buildPlan({ selectedTools: ['opencode'], home: '/fixture/home', project: '/fixture/project', projectOnly: true });
-  const generated = plan.operations.find(op => op.target.endsWith('/agents/lenka.md')).content;
+  const generated = plan.operations.find(op => op.target.endsWith(path.join('agents', 'lenka.md'))).content;
   const permissions = parseFrontmatter(generated.split('---')[1]).permission;
   assert.equal(permissions['solo_*'], 'deny');
   assert.equal(permissions['orchestra-solo-dispatch'], 'allow');

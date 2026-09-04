@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import * as module from 'node:module';
 import vm from 'node:vm';
-import { join, parse, resolve } from 'node:path';
+import { posix } from 'node:path';
+const { join, parse, resolve } = posix;
 
 // Exercise the real report executor without a provider, database, or disk writes.
 test('report requires independent security and performance approval before DONE', {
@@ -24,6 +25,7 @@ test('report requires independent security and performance approval before DONE'
     writeFile: async (...args) => writes.push(args),
   });
   const source = module.stripTypeScriptTypes(readFileSync(new URL('../adapters/opencode/tools/orchestra-report.ts', import.meta.url), 'utf8'))
+    .replace(/\r\n/g, '\n')
     .replace(/^import .*\n/gm, '')
     .replace(/^const executeFile = promisify\(execFile\)\n/m, '')
     .replace('export default tool(', 'globalThis.report = tool(');
