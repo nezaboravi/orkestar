@@ -7,6 +7,7 @@ color: success
 permission:
   edit: deny
   task: deny
+  external_directory: deny
   skill: deny
   bash:
     "*": allow

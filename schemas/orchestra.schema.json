@@ -73,7 +73,7 @@
             "additionalProperties": false,
             "required": ["phase", "role"],
             "properties": {
-              "phase": { "enum": ["design", "plan", "build", "verify", "prove"] },
+              "phase": { "enum": ["design", "plan", "build", "verify", "review", "prove"] },
               "role": { "type": "string", "minLength": 1 },
               "when": { "type": "string", "minLength": 1 }
             }

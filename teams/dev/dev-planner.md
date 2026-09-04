@@ -16,6 +16,7 @@ permission:
     "git grep*": allow
     "ls *": allow
   task: deny
+  external_directory: deny
   skill: deny
 ---
 
@@ -45,3 +46,8 @@ turn risks, repository discoveries, or better ideas into work; return them as
   phases.
 - Never add dependencies, migrations, shared infrastructure, or architectural
   work unless the Task Contract explicitly permits it.
+- When the charter supplies a dedicated Solo result scratchpad, replace only
+  that artifact with the requested JSON result envelope. Put the plan in its
+  evidence entries, under 100 lines. Return the scratchpad ID, revision, native
+  process ID, role and status, not another copy of the plan.
+  This coordination artifact is allowed; application file writes remain denied.

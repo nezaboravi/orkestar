@@ -14,6 +14,7 @@ permission:
     dev-builder: allow
     dev-tester: allow
   Taskavel_*: allow
+  external_directory: deny
   skill: deny
 ---
 

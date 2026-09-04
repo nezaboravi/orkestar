@@ -10,6 +10,7 @@ permission:
   edit: deny
   bash: deny
   task: deny
+  external_directory: deny
   Taskavel_*: allow
   skill: deny
 ---

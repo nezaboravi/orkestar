@@ -106,12 +106,16 @@ database resets, credential changes, and unrequested external effects require
 the human. A non-destructive external write explicitly named in the requested
 outcome may proceed unattended and must still receive independent proof.
 
-Development execution has an additional structural boundary: the primary
-orchestrator may dispatch it only through `dev-lead`. The lead cannot declare
-its own work complete; a recorded `dev-auditor` session supplies the final
-independent verdict. Material UI work also requires the design and frontend QA
-phases. The OpenCode report tool enforces these requirements before it accepts
-`DONE`.
+Development execution has an additional structural boundary: Lenka is the lead
+and directly dispatches the planner, builder, tester, and auditor envelopes.
+This flat phase graph avoids nested-agent depth limits while preserving role
+separation. The builder cannot declare its own work complete; a recorded
+`dev-auditor` session supplies the final independent verdict. Material UI work
+also requires the design and frontend QA phases. The OpenCode report tool
+enforces these requirements before it accepts `DONE`. With OpenCode inside Solo,
+the phases use identity-checked visible sibling processes and native session
+records plus dedicated result artifacts. Codex instead uses native named
+subagents; they are not promised to appear as separate Solo processes.
 
 Taskavel setup is adapter-native. Each supported client registers the same
 public streamable HTTP endpoint under the exact `taskavel` name, invokes its

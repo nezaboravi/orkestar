@@ -9,6 +9,7 @@ permission:
   bash:
     "*": deny
   task: deny
+  external_directory: deny
   playwright_*: allow
   browser-discovery: allow
   present_image: allow

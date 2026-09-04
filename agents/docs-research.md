@@ -8,6 +8,7 @@ permission:
   edit: deny
   bash: deny
   task: deny
+  external_directory: deny
   context7_*: allow
   skill: deny
 ---

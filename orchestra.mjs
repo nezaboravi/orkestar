@@ -227,7 +227,10 @@ function codexAgent(agent, selectedModel = null, reasoningEffort = null) {
   ];
   if (selectedModel) lines.push(`model = "${selectedModel}"`);
   if (reasoningEffort) lines.push(`model_reasoning_effort = "${reasoningEffort}"`);
-  lines.push('', 'developer_instructions = """', agent.body, '"""', '');
+  const codexRouting = agent.name === 'lenka'
+    ? 'Codex routing: use native Codex subagents with the installed named role definitions. Solo hosts this conductor and coordination artifacts; do not launch a bare Codex CLI as a planner, designer, reviewer or auditor. A process name is not a role. Do not claim that native Codex subagents appear as separate Solo processes. Cross-harness delegation requires a separately verified adapter and is not automatic.\n\n'
+    : '';
+  lines.push('', 'developer_instructions = """', codexRouting + agent.body, '"""', '');
   return lines.join('\n');
 }
 
@@ -279,9 +282,35 @@ function cursorAgent(agent) {
 }
 
 function opencodeAgent(agent, selectedModel) {
-  if (!selectedModel) return agent.raw;
-  if (/^model:\s*.+$/m.test(agent.raw)) return agent.raw.replace(/^model:\s*.+$/m, `model: ${selectedModel}`);
-  return agent.raw.replace(/^(mode:\s*.+)$/m, `$1\nmodel: ${selectedModel}`);
+  // Solo workers are independent TUI sessions, not OpenCode child sessions.
+  // `all` preserves the envelope while allowing both launch mechanisms.
+  let raw = agent.raw.replace(/^mode:\s*subagent\s*$/m, 'mode: all');
+  if (agent.name === 'lenka') {
+    // OpenCode Solo process control goes through the checked dispatcher only.
+    raw = raw.replace('  solo_*: allow', [
+      '  solo_*: deny',
+      '  solo_whoami: allow',
+      '  solo_scratchpad_*: allow',
+      '  solo_scratchpad_save_to_file: deny',
+      '  solo_todo_*: allow',
+      '  orchestra-solo-dispatch: allow',
+      '  orchestra-solo-wait: allow',
+    ].join('\n'));
+  }
+  // A sibling worker must not bypass its command/file envelope through Solo.
+  // Keep coordination reads and packet publication, not process control or
+  // filesystem export. This also denies newly added Solo tools by default.
+  if (agent.frontmatter.mode === 'subagent' && agent.frontmatter.permission !== 'deny') {
+    const coordinationTools = [
+      'whoami', 'scratchpad_read', 'scratchpad_list', 'scratchpad_edit',
+      'scratchpad_append_section', 'get_process_status', 'get_process_output',
+    ];
+    const rules = ['  solo_*: deny', ...coordinationTools.map(name => `  solo_${name}: allow`)];
+    raw = raw.replace(/^permission:\s*$/m, `permission:\n${rules.join('\n')}`);
+  }
+  if (!selectedModel) return raw;
+  if (/^model:\s*.+$/m.test(raw)) return raw.replace(/^model:\s*.+$/m, `model: ${selectedModel}`);
+  return raw.replace(/^(mode:\s*.+)$/m, `$1\nmodel: ${selectedModel}`);
 }
 
 function convert(agent, tool, selectedModel = null, reasoningEffort = null) {
@@ -514,7 +543,8 @@ const protocolPhaseArtifacts = {
   plan: ['repository-evidence', 'design-specification'],
   build: ['approved-plan', 'design-specification'],
   verify: ['approved-plan', 'changed-behavior', 'builder-evidence'],
-  prove: ['approved-plan', 'changed-behavior', 'verification-evidence', 'diff-summary'],
+  review: ['approved-plan', 'changed-behavior', 'verification-evidence', 'diff-summary'],
+  prove: ['approved-plan', 'changed-behavior', 'verification-evidence', 'diff-summary', 'review-evidence'],
   repair: ['accepted-defect', 'reproduction', 'verification-evidence', 'diff-summary'],
 };
 
@@ -534,8 +564,14 @@ function createPhasePacket(input = {}) {
     return { type, reference };
   });
   const repairOf = String(input.repairOf || '').trim();
+  if (phase === 'prove' && !normalizedArtifacts.some((artifact) => artifact.type === 'review-evidence')) {
+    throw new Error('Prove phase requires independent review-evidence');
+  }
   if (phase === 'repair' && (!repairOf || !normalizedArtifacts.some((artifact) => artifact.type === 'accepted-defect'))) {
     throw new Error('Repair phase requires one accepted-defect artifact and repairOf identifier');
+  }
+  if (phase === 'repair' && !normalizedArtifacts.some((artifact) => artifact.type === 'reproduction')) {
+    throw new Error('Repair phase requires reproduction evidence before changing behavior');
   }
   if (phase !== 'repair' && repairOf) throw new Error('repairOf is allowed only in the repair phase');
   return {
@@ -847,7 +883,7 @@ function reasoningForClass(tool, modelClass) {
   return tool === 'codex' ? reasoningPolicy(tool).classes?.[modelClass] || null : null;
 }
 
-function runtimeManifest(tool, resolvedFactoryModels = {}) {
+function runtimeManifest(tool, resolvedFactoryModels = {}, resolvedRoles = {}) {
   const factory = orchestraConfig.agentFactory || {};
   const primaryModelClass = orchestraConfig.modelPolicy?.classes?.coordination || 'mid';
   const profiles = Object.fromEntries(Object.entries(factory.profiles || {}).map(([name, profile]) => {
@@ -855,7 +891,7 @@ function runtimeManifest(tool, resolvedFactoryModels = {}) {
     return [name, {
       permissionEnvelope: profile.template,
       modelClass: profile.modelClass,
-      model: resolvedFactoryModels[profile.modelClass] || null,
+      model: selectedAgentModel(profile.template, resolvedRoles, resolvedFactoryModels),
       ...(reasoningEffort ? { reasoningEffort } : {}),
       writes: Boolean(profile.writes),
       externalWrites: Boolean(profile.externalWrites),
@@ -880,6 +916,7 @@ function runtimeManifest(tool, resolvedFactoryModels = {}) {
       phasePacket: '.agent-orchestra/protocol/phase-packet.schema.json',
       result: '.agent-orchestra/protocol/agent-result.schema.json',
       dispatcher: 'role-instructions-only',
+      soloDispatch: tool === 'opencode' ? 'native-identity-gated' : 'not-enforced',
     },
     profiles,
   }, null, 2)}\n`;
@@ -906,7 +943,7 @@ function buildPlan(options) {
       operations.push({ target: personaTarget(tool, options.home), content: personaContent, kind: `${tool} persona` });
       operations.push({
         target: path.join(options.home, '.agent-orchestra', 'runtime', `${tool}.json`),
-        content: runtimeManifest(tool, resolvedFactoryModels),
+        content: runtimeManifest(tool, resolvedFactoryModels, resolvedModels),
         kind: `${tool} global runtime manifest`,
       });
       if (tool === 'opencode') {
@@ -936,7 +973,7 @@ function buildPlan(options) {
       }
       operations.push({
         target: path.join(options.project, '.agent-orchestra', 'runtime', `${tool}.json`),
-        content: runtimeManifest(tool, resolvedFactoryModels),
+        content: runtimeManifest(tool, resolvedFactoryModels, resolvedModels),
         kind: `${tool} runtime manifest`,
       });
       if (tool === 'opencode') {

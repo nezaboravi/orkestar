@@ -47,6 +47,28 @@ with its HTTP API enabled. Orkestar discovers `solo` on `PATH`, the `SOLO_CLI`
 override, and the standard bundled macOS CLI. On Windows, install Solo's CLI
 launcher on `PATH` from Solo settings before using this workspace.
 
+Before launching Lenka, Orkestar registers Solo's bundled MCP helper in the
+selected client while preserving existing MCP entries. Lenka then creates the
+run scratchpad and todos. OpenCode dispatches required development phases as
+visible Solo workers; Codex uses native named subagents, not separate Solo
+processes. Automatic Kimi/Solo MCP registration is currently unsupported.
+All ordinary discovery remains inside the active project;
+the launcher-projected runtime manifest replaces any need to scan a user's home
+directory for models, agents, or installation files.
+
+### Solo worker permission boundary
+
+Generated OpenCode workers deny Solo tools by default. Their exceptions are
+identity, scratchpad reads/result publication, and process status/output reads.
+They cannot use Solo to spawn a shell, send commands to another process, export
+a scratchpad to a file, or mutate projects. Lenka retains process coordination.
+This adapter restriction is **OpenCode-specific**, not verified cross-harness
+enforcement. Scratchpad exceptions currently authorize whole tools, not an
+assigned scratchpad ID or section: evidence ownership remains a protocol rule,
+not a security isolation boundary. Do not treat worker-authored packets as
+tamper-proof records. Final verification must inspect native session evidence
+and the actual project, not merely trust a shared scratchpad verdict.
+
 When Solo is installed on Linux or Omarchy, Orkestar opens it through its
 registered `solo:` desktop URL handler. If no handler is registered, Herdr and
 the direct CLI path remain available. This affects only the workspace view; agent definitions,

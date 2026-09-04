@@ -56,20 +56,37 @@ test('phase packets preserve the contract and reject unauthorized artifact types
   assert.throws(() => createPhasePacket({ phase: 'build', taskContract, artifacts: [{ type: 'verification-evidence', reference: 'proof.json' }] }), /not allowed/);
   assert.throws(() => createPhasePacket({ phase: 'build', taskContract: { ...taskContract, id: 'tc-wrong' }, artifacts: [] }), /ID does not match/);
   assert.throws(() => createPhasePacket({ phase: 'repair', taskContract, repairOf: 'finding-1', artifacts: [{ type: 'reproduction', reference: 'repro.json' }] }), /accepted-defect artifact and repairOf/);
-  const repair = createPhasePacket({ phase: 'repair', taskContract, repairOf: 'finding-1', artifacts: [{ type: 'accepted-defect', reference: 'defect.json' }] });
+  assert.throws(() => createPhasePacket({ phase: 'repair', taskContract, repairOf: 'finding-1', artifacts: [{ type: 'accepted-defect', reference: 'defect.json' }] }), /requires reproduction evidence/);
+  assert.throws(() => createPhasePacket({ phase: 'repair', taskContract, repairOf: 'finding-1', artifacts: [{ type: 'accepted-defect', reference: 'defect.json' }, { type: 'reproduction', reference: ' ' }] }), /reference is required/);
+  const repair = createPhasePacket({ phase: 'repair', taskContract, repairOf: 'finding-1', artifacts: [{ type: 'accepted-defect', reference: 'defect.json' }, { type: 'reproduction', reference: 'repro.json' }] });
   assert.equal(repair.repairOf, 'finding-1');
 });
 
 test('installed phase-packet schema declares phase-specific artifact and repair gates', () => {
   const schema = JSON.parse(fs.readFileSync(path.join(repoRoot, 'schemas', 'phase-packet.schema.json'), 'utf8'));
   const phaseRules = schema.allOf.filter((rule) => rule.if?.properties?.phase?.const);
-  assert.deepEqual(phaseRules.map((rule) => rule.if.properties.phase.const), ['design', 'plan', 'build', 'verify', 'prove', 'repair', 'repair']);
+  const referenceRule = schema.properties.artifacts.items.properties.reference;
+  assert.equal(referenceRule.pattern, '\\S');
+  assert.equal(new RegExp(referenceRule.pattern).test(' \n\t'), false);
+  assert.equal(new RegExp(referenceRule.pattern).test('repro.json'), true);
+  assert.deepEqual(phaseRules.map((rule) => rule.if.properties.phase.const), ['design', 'plan', 'build', 'verify', 'review', 'prove', 'repair', 'repair']);
   const buildRule = phaseRules.find((rule) => rule.if.properties.phase.const === 'build');
   assert.deepEqual(buildRule.then.properties.artifacts.items.properties.type.enum, ['approved-plan', 'design-specification']);
   const repairGate = phaseRules.at(-1);
   assert.deepEqual(repairGate.then.required, ['repairOf']);
   assert.equal(repairGate.then.properties.artifacts.contains.properties.type.const, 'accepted-defect');
+  assert.equal(repairGate.then.properties.artifacts.allOf[0].contains.properties.type.const, 'reproduction');
   assert.deepEqual(repairGate.else, { not: { required: ['repairOf'] } });
+});
+
+test('review packets preserve scope and expose independent evidence to the auditor', () => {
+  const taskContract = contract();
+  const review = createPhasePacket({ phase: 'review', taskContract, artifacts: [{ type: 'diff-summary', reference: 'diff.txt' }] });
+  assert.equal(review.phase, 'review');
+  const proof = createPhasePacket({ phase: 'prove', taskContract, artifacts: [{ type: 'review-evidence', reference: 'review.json' }] });
+  assert.equal(proof.artifacts[0].type, 'review-evidence');
+  assert.throws(() => createPhasePacket({ phase: 'prove', taskContract, artifacts: [] }), /requires independent review-evidence/);
+  assert.throws(() => createPhasePacket({ phase: 'build', taskContract, artifacts: [{ type: 'review-evidence', reference: 'review.json' }] }), /not allowed/);
 });
 
 test('typed protocol results enforce repair eligibility and evidence', () => {

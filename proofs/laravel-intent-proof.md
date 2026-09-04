@@ -22,12 +22,12 @@ planning, implementation, testing, and independent audit.
 
 ## Required team flow
 
-1. `dev-lead` receives the intent and coordinates the run.
-2. `dev-planner` inspects the fresh application and returns an executable plan.
-3. `dev-builder` implements the approved plan without external or destructive
+1. Lenka receives the intent and acts as the team lead.
+2. Lenka dispatches `dev-planner` to inspect the fresh application and return an executable plan.
+3. Lenka dispatches `dev-builder` to implement the approved plan without external or destructive
    operations.
-4. `dev-tester` adds or extends tests and runs the relevant suite.
-5. `dev-auditor` independently reads the diff, reruns verification, and returns
+4. Lenka dispatches `dev-tester` to add or extend tests and run the relevant suite.
+5. Lenka dispatches `dev-auditor` to independently read the diff, rerun verification, and return
    `DONE` or `NOT DONE` with evidence.
 
 The builder may fix objective test failures for at most three verification

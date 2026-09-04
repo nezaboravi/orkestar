@@ -106,17 +106,65 @@ test('Lenka invokes product design only through the development lead when it is 
   assert.match(lenka, /approved design already/);
 });
 
-test('Lenka cannot bypass the development lead with direct implementation roles', () => {
+test('Lenka leads a flat audited workflow without generic implementation fallbacks', () => {
   const lenka = parseAgent(path.join(repoRoot, 'agents', 'lenka.md'));
-  const lead = parseAgent(path.join(repoRoot, 'teams', 'dev', 'dev-lead.md'));
   const direct = lenka.frontmatter.permission.task;
 
-  assert.equal(direct['dev-lead'], 'allow');
-  for (const role of ['implementer', 'verifier', 'dev-planner', 'dev-builder', 'dev-tester', 'dev-auditor']) {
-    assert.notEqual(direct[role], 'allow', `Lenka must not dispatch ${role} directly`);
+  for (const role of ['product-designer', 'dev-planner', 'dev-builder', 'dev-tester', 'dev-auditor']) {
+    assert.equal(direct[role], 'allow', `Lenka must dispatch ${role} directly`);
   }
-  assert.equal(lead.frontmatter.permission.task['frontend-qa'], 'allow');
-  assert.match(lenka.body, /delegate the complete goal to `dev-lead` exactly once/);
+  for (const role of ['implementer', 'verifier', 'dev-lead']) {
+    assert.notEqual(direct[role], 'allow', `Lenka must not use ${role} as a workflow shortcut`);
+  }
+  assert.match(lenka.body, /Lenka is\s+the team lead and dispatches each phase directly/);
+  assert.match(lenka.body, /Solo's `spawn_agent`/);
+});
+
+test('every active source permission envelope denies external directories', () => {
+  const files = [
+    ...fs.readdirSync(path.join(repoRoot, 'agents')).filter((name) => name.endsWith('.md')).map((name) => path.join(repoRoot, 'agents', name)),
+    ...fs.readdirSync(path.join(repoRoot, 'teams', 'dev')).filter((name) => name.endsWith('.md')).map((name) => path.join(repoRoot, 'teams', 'dev', name)),
+  ];
+  for (const file of files) {
+    const agent = parseAgent(file);
+    if (agent.frontmatter.permission === 'deny') continue;
+    assert.equal(agent.frontmatter.permission.external_directory, 'deny', `${file} must stay project-scoped`);
+  }
+});
+
+test('every code change requires independent security and performance review', () => {
+  const reviewer = parseAgent(path.join(repoRoot, 'agents', 'reviewer.md'));
+  const lenka = parseAgent(path.join(repoRoot, 'agents', 'lenka.md'));
+  const auditor = parseAgent(path.join(repoRoot, 'teams', 'dev', 'dev-auditor.md'));
+  assert.equal(reviewer.frontmatter.permission.edit, 'deny');
+  assert.equal(lenka.frontmatter.permission.task.reviewer, 'allow');
+  assert.match(reviewer.body, /Every code change requires both security and performance review/);
+  assert.match(reviewer.body, /APPROVED or CHANGES_REQUIRED/);
+  assert.match(reviewer.body, /PASS, FAIL, UNVERIFIED, or NOT APPLICABLE/);
+  assert.match(auditor.body, /Reject `DONE` for any code change without an independent reviewer packet/);
+  assert.match(lenka.body, /transfer phase results through scratchpads, not terminal scraping/);
+  assert.match(lenka.body, /solo_timer_fire_when_idle_all/);
+  assert.match(lenka.body, /End your turn immediately after arming the timer/);
+  assert.match(lenka.body, /A timeout or idle state is not success/);
+});
+
+test('OpenCode workers can run as Solo sibling sessions without losing their envelope', () => {
+  const project = '/tmp/orchestra-sibling-test';
+  const plan = buildPlan({ home: '/tmp/orchestra-home', project, projectOnly: true, selectedTools: ['opencode'], conflict: 'backup' });
+  for (const role of ['product-designer', 'dev-planner', 'dev-builder', 'reviewer', 'dev-auditor']) {
+    const entry = plan.operations.find((item) => item.target === path.join(project, '.opencode', 'agents', `${role}.md`));
+    assert.match(String(entry.content), /^mode: all$/m);
+    assert.match(String(entry.content), /external_directory: deny/);
+    const frontmatter = String(entry.content).split('---')[1];
+    const permissions = parseFrontmatter(frontmatter).permission;
+    assert.equal(permissions['solo_*'], 'deny');
+    assert.equal(permissions.solo_scratchpad_read, 'allow');
+    assert.equal(permissions.solo_scratchpad_edit, 'allow');
+    for (const tool of ['spawn_process', 'spawn_agent', 'send_input', 'scratchpad_save_to_file', 'timer_set', 'delete_project']) {
+      assert.equal(permissions[`solo_${tool}`], undefined, `${tool} must remain under the deny catch-all`);
+    }
+    if (role !== 'dev-builder') assert.match(String(entry.content), /edit: deny/);
+  }
 });
 
 test('Cursor inventory and probe use the Cursor Agent CLI', () => {
@@ -269,9 +317,10 @@ test('declared workflow resolves to real team agents', () => {
   const declared = [config.team.entrypoint, ...config.team.workflow.map((step) => step.role)];
 
   for (const role of declared) {
-    assert.ok(fs.existsSync(path.join(repoRoot, 'teams', 'dev', `${role}.md`)), `${role} must exist`);
+    const source = ['lenka', 'reviewer'].includes(role) ? path.join(repoRoot, 'agents', `${role}.md`) : path.join(repoRoot, 'teams', 'dev', `${role}.md`);
+    assert.ok(fs.existsSync(source), `${role} must exist`);
   }
-  assert.deepEqual(config.team.workflow.map((step) => step.phase), ['design', 'plan', 'build', 'verify', 'prove']);
+  assert.deepEqual(config.team.workflow.map((step) => step.phase), ['design', 'plan', 'build', 'verify', 'review', 'prove']);
   assert.equal(config.modelPolicy.humanConfirmationBeforeFirstDispatch, false);
 });
 
@@ -494,6 +543,10 @@ test('project runtime manifest gives Lenka exact adapter-local routes without cr
   }));
 
   assert.equal(manifest.harness, 'opencode');
+  assert.equal(manifest.profiles['project-plan'].permissionEnvelope, 'dev-planner');
+  assert.equal(manifest.profiles['project-test'].permissionEnvelope, 'dev-tester');
+  assert.equal(manifest.profiles['project-audit'].permissionEnvelope, 'dev-auditor');
+  assert.equal(manifest.profiles['ui-verify'].permissionEnvelope, 'frontend-qa');
   assert.deepEqual(manifest.primary, {
     role: 'coordination',
     modelClass: 'mid',
@@ -508,6 +561,25 @@ test('project runtime manifest gives Lenka exact adapter-local routes without cr
     independentProofRequired: false,
   });
   assert.equal(JSON.stringify(manifest).match(/token|secret|credential/gi), null);
+});
+
+test('OpenCode conductor cannot bypass checked Solo dispatch through raw process control', () => {
+  const plan = buildPlan({ selectedTools: ['opencode'], home: '/fixture/home', project: '/fixture/project', projectOnly: true });
+  const generated = plan.operations.find(op => op.target.endsWith('/agents/lenka.md')).content;
+  const permissions = parseFrontmatter(generated.split('---')[1]).permission;
+  assert.equal(permissions['solo_*'], 'deny');
+  assert.equal(permissions['orchestra-solo-dispatch'], 'allow');
+  assert.equal(permissions['orchestra-solo-wait'], 'allow');
+  for (const name of ['spawn_agent', 'spawn_process', 'send_input', 'get_process_output']) {
+    assert.notEqual(permissions[`solo_${name}`], 'allow');
+  }
+});
+
+test('runtime profile route matches the installed role override', () => {
+  const manifest = JSON.parse(runtimeManifest('opencode', { mid: 'provider/default' }, { 'dev-planner': 'provider/planning' }));
+  assert.equal(manifest.profiles['project-plan'].model, 'provider/planning');
+  const lenka = parseAgent(path.join(repoRoot, 'agents/lenka.md'));
+  assert.match(codexAgent(lenka), /use native Codex subagents/);
 });
 
 test('Codex runtime and generated roles pin reasoning effort by responsibility', () => {
@@ -583,7 +655,7 @@ test('OpenCode installation includes the exact run audit tool', () => {
   assert.ok(operation);
   assert.match(operation.content.toString(), /Exact OpenCode session database values; no estimates/);
   assert.match(operation.content.toString(), /context\.directory/);
-  assert.match(operation.content.toString(), /DONE development run requires a recorded independent dev-auditor session/);
+  assert.match(operation.content.toString(), /DONE development run requires a recorded \$\{role\} session/);
   assert.match(operation.content.toString(), /DONE UI run requires a recorded frontend-qa session/);
   assert.match(operation.content.toString(), /Taskavel: \$\{audit\.taskavel\}/);
   assert.ok(statePlugin);

@@ -7,7 +7,7 @@
   "required": ["schemaVersion", "phase", "taskContract", "artifacts"],
   "properties": {
     "schemaVersion": { "const": 1 },
-    "phase": { "enum": ["design", "plan", "build", "verify", "prove", "repair"] },
+    "phase": { "enum": ["design", "plan", "build", "verify", "review", "prove", "repair"] },
     "taskContract": { "$ref": "./task-contract.schema.json" },
     "artifacts": {
       "type": "array",
@@ -16,8 +16,8 @@
         "additionalProperties": false,
         "required": ["type", "reference"],
         "properties": {
-          "type": { "enum": ["repository-evidence", "approved-design", "design-specification", "approved-plan", "changed-behavior", "builder-evidence", "verification-evidence", "diff-summary", "accepted-defect", "reproduction"] },
-          "reference": { "type": "string", "minLength": 1 }
+          "type": { "enum": ["repository-evidence", "approved-design", "design-specification", "approved-plan", "changed-behavior", "builder-evidence", "verification-evidence", "review-evidence", "diff-summary", "accepted-defect", "reproduction"] },
+          "reference": { "type": "string", "minLength": 1, "pattern": "\\S" }
         }
       }
     },
@@ -41,8 +41,16 @@
       "then": { "properties": { "artifacts": { "items": { "properties": { "type": { "enum": ["approved-plan", "changed-behavior", "builder-evidence"] } } } } } }
     },
     {
-      "if": { "properties": { "phase": { "const": "prove" } }, "required": ["phase"] },
+      "if": { "properties": { "phase": { "const": "review" } }, "required": ["phase"] },
       "then": { "properties": { "artifacts": { "items": { "properties": { "type": { "enum": ["approved-plan", "changed-behavior", "verification-evidence", "diff-summary"] } } } } } }
+    },
+    {
+      "if": { "properties": { "phase": { "const": "prove" } }, "required": ["phase"] },
+      "then": { "properties": { "artifacts": {
+        "items": { "properties": { "type": { "enum": ["approved-plan", "changed-behavior", "verification-evidence", "diff-summary", "review-evidence"] } } },
+        "contains": { "type": "object", "required": ["type"], "properties": { "type": { "const": "review-evidence" } } },
+        "minContains": 1
+      } } }
     },
     {
       "if": { "properties": { "phase": { "const": "repair" } }, "required": ["phase"] },
@@ -59,7 +67,15 @@
               "required": ["type"],
               "properties": { "type": { "const": "accepted-defect" } }
             },
-            "minContains": 1
+            "minContains": 1,
+            "allOf": [{
+              "contains": {
+                "type": "object",
+                "required": ["type"],
+                "properties": { "type": { "const": "reproduction" } }
+              },
+              "minContains": 1
+            }]
           }
         }
       },

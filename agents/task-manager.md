@@ -8,6 +8,7 @@ permission:
   edit: deny
   bash: deny
   task: deny
+  external_directory: deny
   Taskavel_Dev_*: allow
   Taskavel_*: allow
   skill: deny

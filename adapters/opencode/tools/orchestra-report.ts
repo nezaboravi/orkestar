@@ -64,6 +64,18 @@ export default tool({
     designRequired: tool.schema.boolean().describe("True for a new or materially changed user-facing interface"),
     visualProofRequired: tool.schema.boolean().describe("True when user-facing UI behavior changed"),
     taskavel: tool.schema.enum(["synced", "not-requested", "unavailable"]).describe("Observed Taskavel coordination state"),
+    review: tool.schema.object({
+      sessionId: tool.schema.string().describe("Independent reviewer session ID"),
+      verdict: tool.schema.enum(["APPROVED", "CHANGES_REQUIRED"]),
+      security: tool.schema.object({
+        status: tool.schema.enum(["PASS", "FAIL", "UNVERIFIED", "NOT_APPLICABLE"]),
+        evidence: tool.schema.array(tool.schema.string()),
+      }),
+      performance: tool.schema.object({
+        status: tool.schema.enum(["PASS", "FAIL", "UNVERIFIED", "NOT_APPLICABLE"]),
+        evidence: tool.schema.array(tool.schema.string()),
+      }),
+    }).optional().describe("Required for DONE development; NOT_APPLICABLE needs change-specific justification in evidence"),
     proof: tool.schema.array(tool.schema.object({
       criterion: tool.schema.string().describe("Observable acceptance criterion"),
       method: tool.schema.string().describe("Independent verification method"),
@@ -104,11 +116,25 @@ export default tool({
     })
     const rows = JSON.parse(stdout) as SessionRow[]
     if (!rows.length) throw new Error(`OpenCode did not return session telemetry for ${context.sessionID}`)
-    if (args.status === "DONE" && args.workflow === "development" && !sessionHasRole(rows, "dev-lead")) {
-      throw new Error("DONE development run requires a recorded dev-lead session")
-    }
-    if (args.status === "DONE" && args.workflow === "development" && !sessionHasRole(rows, "dev-auditor")) {
-      throw new Error("DONE development run requires a recorded independent dev-auditor session")
+    if (args.status === "DONE" && args.workflow === "development") {
+      for (const role of ["dev-planner", "dev-builder", "dev-tester", "reviewer", "dev-auditor"]) {
+        if (!sessionHasRole(rows, role)) {
+          throw new Error(`DONE development run requires a recorded ${role} session`)
+        }
+      }
+      const review = args.review
+      if (!review || review.verdict !== "APPROVED") {
+        throw new Error("DONE development requires an APPROVED independent review")
+      }
+      if (review.sessionId === context.sessionID || !rows.some((row) => row.id === review.sessionId && row.agent === "reviewer")) {
+        throw new Error("Review must reference the recorded independent reviewer session")
+      }
+      for (const category of ["security", "performance"] as const) {
+        const check = review[category]
+        if (!["PASS", "NOT_APPLICABLE"].includes(check.status) || !check.evidence.some((item) => item.trim())) {
+          throw new Error(`DONE requires verified ${category} review evidence or explicit non-applicability justification`)
+        }
+      }
     }
     if (args.status === "DONE" && args.designRequired && !sessionHasRole(rows, "product-designer")) {
       throw new Error("DONE user-facing design run requires a recorded product-designer session")
@@ -164,6 +190,7 @@ export default tool({
         complete: telemetryComplete,
       },
       proof: args.proof,
+      review: args.review ?? null,
       blockers: args.blockers,
       telemetry: "Exact OpenCode session database values; no estimates.",
     }

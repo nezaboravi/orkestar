@@ -33,6 +33,156 @@ function findSoloCli(locate, options = {}) {
   return null;
 }
 
+function findSoloMcp(soloBinary, options = {}) {
+  const environment = options.environment || process.env;
+  const home = options.home || os.homedir();
+  const candidates = [];
+  if (environment.SOLO_MCP) candidates.push(environment.SOLO_MCP);
+  if (soloBinary) candidates.push(path.join(path.dirname(soloBinary), 'mcp'));
+  if ((options.platform || process.platform) === 'darwin') {
+    candidates.push(
+      '/Applications/Solo.app/Contents/MacOS/mcp',
+      path.join(home, 'Applications', 'Solo.app', 'Contents', 'MacOS', 'mcp'),
+    );
+  }
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {
+      // Continue through verified installation locations.
+    }
+  }
+  return null;
+}
+
+function writeJsonConfiguration(target, mutate) {
+  let config = {};
+  if (fs.existsSync(target)) {
+    try {
+      config = JSON.parse(fs.readFileSync(target, 'utf8'));
+    } catch {
+      throw new Error(`MCP configuration is not valid JSON: ${target}`);
+    }
+  }
+  const before = JSON.stringify(config);
+  mutate(config);
+  if (JSON.stringify(config) === before) return false;
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const temporary = `${target}.tmp-${process.pid}`;
+  fs.writeFileSync(temporary, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(temporary, target);
+  return true;
+}
+
+function escapeRegularExpression(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function configureSoloMcp(harness, harnessBinary, soloMcp, options = {}) {
+  if (!soloMcp) throw new Error('Solo is installed but its MCP helper is not executable');
+  const home = options.home || os.homedir();
+  if (harness === 'opencode') {
+    const target = path.join(home, '.config', 'opencode', 'opencode.json');
+    const changed = writeJsonConfiguration(target, (config) => {
+      config.mcp ||= {};
+      config.mcp.solo = { type: 'local', command: [soloMcp], enabled: true };
+    });
+    return { changed, target };
+  }
+  if (harness === 'cursor') {
+    const target = path.join(home, '.cursor', 'mcp.json');
+    const changed = writeJsonConfiguration(target, (config) => {
+      config.mcpServers ||= {};
+      config.mcpServers.solo = { command: soloMcp };
+    });
+    return { changed, target };
+  }
+
+  const runner = options.runner || spawnSync;
+  if (harness === 'codex') {
+    const configured = runner(harnessBinary, ['mcp', 'get', 'solo', '--json'], { encoding: 'utf8' });
+    if (configured?.status === 0) {
+      let server;
+      try {
+        server = JSON.parse(configured.stdout);
+      } catch {
+        throw new Error('Codex MCP server "solo" could not be verified because `codex mcp get solo --json` returned invalid JSON');
+      }
+      const transport = server?.transport || {};
+      if (server?.enabled === true
+        && transport.type === 'stdio'
+        && transport.command === soloMcp
+        && Array.isArray(transport.args)
+        && transport.args.length === 0) {
+        return { changed: false, target: 'codex MCP registry' };
+      }
+      throw new Error('Codex MCP server "solo" is already configured but is disabled or points to a different command; update it before running lenka up solo again');
+    }
+    const detail = String(configured?.stderr || configured?.stdout || '').trim();
+    if (configured?.error || !/No MCP server named ['"]solo['"] found\.?/i.test(detail)) {
+      throw new Error(`Codex MCP server "solo" could not be verified${detail ? `: ${detail}` : ''}`);
+    }
+  }
+  if (harness === 'claude') {
+    const configured = runner(harnessBinary, ['mcp', 'get', 'solo'], { encoding: 'utf8' });
+    if (configured?.status === 0) {
+      const output = String(configured.stdout || '');
+      const command = escapeRegularExpression(soloMcp);
+      const valid = /^solo:\s*$/m.test(output)
+        && /^\s*Status:\s*.*\bConnected\s*$/m.test(output)
+        && /^\s*Type:\s*stdio\s*$/m.test(output)
+        && new RegExp(`^\\s*Command:\\s*${command}\\s*$`, 'm').test(output)
+        && /^\s*Args:\s*$/m.test(output);
+      if (valid) return { changed: false, target: 'claude MCP registry' };
+      throw new Error('Claude MCP server "solo" is already configured but is unavailable, disabled, or points to a different command; update it before running lenka up solo again');
+    }
+    const detail = String(configured?.stderr || configured?.stdout || '').trim();
+    if (configured?.error || !/No MCP server named ['"]solo['"]\.?/i.test(detail)) {
+      throw new Error(`Claude MCP server "solo" could not be verified${detail ? `: ${detail}` : ''}`);
+    }
+  }
+  const argsByHarness = {
+    codex: ['mcp', 'add', 'solo', '--', soloMcp],
+    claude: ['mcp', 'add', '--scope', 'user', '--transport', 'stdio', 'solo', '--', soloMcp],
+  };
+  const args = argsByHarness[harness];
+  if (!args) throw new Error(`Solo MCP automatic setup is not supported for ${harness}; its installed CLI cannot verify an existing Solo MCP registration`);
+  const added = runner(harnessBinary, args, { encoding: 'utf8' });
+  if (added?.error || added?.status !== 0) {
+    const detail = String(added?.stderr || added?.stdout || '').trim();
+    throw new Error(`${harness} could not connect Solo MCP${detail ? `: ${detail}` : ''}`);
+  }
+  return { changed: true, target: `${harness} MCP registry` };
+}
+
+function verifySoloMcpReady(soloMcp, options = {}) {
+  if (!soloMcp) throw new Error('Solo is installed but its MCP helper is not executable');
+  const runner = options.runner || spawnSync;
+  const request = `${JSON.stringify({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'initialize',
+    params: {
+      protocolVersion: '2025-03-26',
+      capabilities: {},
+      clientInfo: { name: 'orkestar-preflight', version: '1' },
+    },
+  })}\n`;
+  const result = runner(soloMcp, [], { input: request, encoding: 'utf8', timeout: 3000 });
+  const output = String(result?.stdout || '');
+  let response = null;
+  try {
+    response = output.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)).find((entry) => entry.id === 1);
+  } catch {
+    // Report the supported recovery path below.
+  }
+  if (result?.error || result?.status !== 0 || !response?.result?.serverInfo) {
+    throw new Error('Solo MCP is off. Open Solo Settings → MCP, turn on MCP server, then run lenka up solo again. This is a one-time Solo setting.');
+  }
+  return response.result;
+}
+
 function decodeSoloJson(result, label) {
   if (result.error) throw result.error;
   if (result.status !== 0) {
@@ -75,14 +225,15 @@ function soloProcessName(harness) {
     kimi: 'Kimi Code',
     opencode: 'OpenCode',
   };
-  return `Lenka — ${labels[harness] || harness}`;
+  return `Lenka — ${labels[harness] || harness} · Solo team`;
 }
 
 function matchesSoloRuntime(processEntry, runtime, name = soloProcessName(runtime.harness)) {
   const command = String(processEntry.command || '');
   const model = String(runtime.manifest.primary.model || '');
+  const legacyName = soloProcessName(runtime.harness).replace(' · Solo team', '');
   return processEntry.kind === 'agent'
-    && [name, 'Lenka — Orkestar'].includes(processEntry.name)
+    && [name, legacyName, 'Lenka — Orkestar'].includes(processEntry.name)
     && command.includes(runtime.binary)
     && (!model || command.includes(`--model ${model}`));
 }
@@ -188,6 +339,14 @@ function launchInSolo(runtime, options, dependencies = {}) {
   const projectPath = fs.realpathSync(options.project);
   const activate = dependencies.openSolo || ((projectId) => openSolo(projectId, dependencies.platform || process.platform, dependencies.runner || spawnSync));
   ensureSoloReady(binary, projectPath, invoke, activate, dependencies.wait || pause);
+  const soloMcp = dependencies.soloMcp || findSoloMcp(binary, dependencies);
+  const verifyMcp = dependencies.verifyMcp || verifySoloMcpReady;
+  verifyMcp(soloMcp, { runner: dependencies.runner || spawnSync });
+  const configureMcp = dependencies.configureMcp || configureSoloMcp;
+  const mcp = configureMcp(runtime.harness, runtime.binary, soloMcp, {
+    home: dependencies.home || os.homedir(),
+    runner: dependencies.runner || spawnSync,
+  });
   if (runtime.harness === 'cursor') {
     const ensureTrust = dependencies.ensureCursorTrust || ensureCursorWorkspaceTrusted;
     ensureTrust(runtime, projectPath, dependencies.home || os.homedir(), dependencies.runner || spawnSync);
@@ -224,7 +383,7 @@ function launchInSolo(runtime, options, dependencies = {}) {
   if (active) {
     const named = renameSoloProcess(binary, active, processName, projectPath, invoke);
     if (!activate(project.id)) throw new Error('Lenka is running in Solo, but Orkestar could not show the Solo project window');
-    return { binary, project, tool: null, process: named, startup: named, reused: true };
+    return { binary, project, tool: null, process: named, startup: named, reused: true, mcp };
   }
   const stopped = matchingProcesses.find((entry) => ['stopped', 'exited'].includes(entry.status));
   if (stopped) {
@@ -236,7 +395,7 @@ function launchInSolo(runtime, options, dependencies = {}) {
     const verifyStartup = dependencies.verifyStartup || verifySoloStartup;
     const startup = verifyStartup(binary, project.id, processEntry.id || named.id, projectPath, invoke, dependencies.wait);
     if (!activate(project.id)) throw new Error('Lenka is running in Solo, but Orkestar could not show the Solo project window');
-    return { binary, project, tool: null, process: { ...named, ...processEntry }, startup, reused: true };
+    return { binary, project, tool: null, process: { ...named, ...processEntry }, startup, reused: true, mcp };
   }
 
   const agentTools = decodeSoloJson(invoke(binary, ['agents', 'list'], projectPath), 'Solo agent tool list').agentTools || [];
@@ -255,7 +414,7 @@ function launchInSolo(runtime, options, dependencies = {}) {
   const verifyStartup = dependencies.verifyStartup || verifySoloStartup;
   const startup = verifyStartup(binary, project.id, processEntry.id, projectPath, invoke, dependencies.wait);
   if (!activate(project.id)) throw new Error('Lenka is running in Solo, but Orkestar could not show the Solo project window');
-  return { binary, project, tool, process: processEntry, startup, reused: false };
+  return { binary, project, tool, process: processEntry, startup, reused: false, mcp };
 }
 
-export { bundledSoloCandidates, decodeSoloJson, ensureCursorWorkspaceTrusted, ensureSoloReady, findSoloCli, launchInSolo, matchesSoloRuntime, openSolo, selectAgentTool, soloProcessName, verifySoloStartup };
+export { bundledSoloCandidates, configureSoloMcp, decodeSoloJson, ensureCursorWorkspaceTrusted, ensureSoloReady, findSoloCli, findSoloMcp, launchInSolo, matchesSoloRuntime, openSolo, selectAgentTool, soloProcessName, verifySoloMcpReady, verifySoloStartup };

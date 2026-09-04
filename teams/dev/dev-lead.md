@@ -13,6 +13,7 @@ permission:
   bash: deny
   glob: deny
   grep: deny
+  external_directory: deny
   task:
     "*": deny
     product-designer: allow

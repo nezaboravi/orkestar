@@ -24,12 +24,13 @@
   },
   "team": {
     "name": "development",
-    "entrypoint": "dev-lead",
+    "entrypoint": "lenka",
     "workflow": [
       { "phase": "design", "role": "product-designer", "when": "material-ux-ui-decision-required" },
       { "phase": "plan", "role": "dev-planner" },
       { "phase": "build", "role": "dev-builder" },
       { "phase": "verify", "role": "dev-tester" },
+      { "phase": "review", "role": "reviewer" },
       { "phase": "prove", "role": "dev-auditor" }
     ]
   },
@@ -66,9 +67,45 @@
         "writes": true,
         "externalWrites": false
       },
+      "project-plan": {
+        "template": "dev-planner",
+        "modelClass": "mid",
+        "writes": false,
+        "externalWrites": false
+      },
+      "project-test": {
+        "template": "dev-tester",
+        "modelClass": "economy",
+        "writes": true,
+        "externalWrites": false
+      },
+      "project-audit": {
+        "template": "dev-auditor",
+        "modelClass": "strongest",
+        "writes": false,
+        "externalWrites": false
+      },
+      "ui-verify": {
+        "template": "frontend-qa",
+        "modelClass": "strongest",
+        "writes": false,
+        "externalWrites": false
+      },
+      "product-design": {
+        "template": "product-designer",
+        "modelClass": "strongest",
+        "writes": false,
+        "externalWrites": false
+      },
       "project-verify": {
         "template": "verifier",
         "modelClass": "economy",
+        "writes": false,
+        "externalWrites": false
+      },
+      "code-review": {
+        "template": "reviewer",
+        "modelClass": "strongest",
         "writes": false,
         "externalWrites": false
       },

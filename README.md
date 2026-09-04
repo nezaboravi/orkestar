@@ -7,6 +7,12 @@ useful team for a task, select models that are actually available on the current
 machine, grant the least permissions required, and demand evidence before work
 is called complete.
 
+Every code change requires an independent security and performance review.
+The reviewer returns evidence-backed findings to Lenka; accepted in-scope
+defects go through repair, affected tests, and re-review before final audit.
+A passing test suite does not replace this gate. Unsupported checks are
+reported as unverified, never silently passed.
+
 It is not a hosted service, a model subscription, or a token broker. It is a
 public skeleton you own and adapt. `lenka up` opens the saved workspace and
 launches Cursor Agent, Codex, Claude Code, Kimi Code, or OpenCode inside it. Use `--direct`
@@ -22,8 +28,8 @@ Orkestar deliberately chooses constraints over agent theatre:
 - agents are created for one job and end when that job is done;
 - the cheapest verified capable model is selected after permissions;
 - planners and auditors do not edit, and executors do not approve themselves;
-- development writes go through the complete dev-lead workflow and require an
-  independent dev-auditor verdict;
+- Lenka leads the complete development workflow, dispatches each phase
+  directly, and requires an independent dev-auditor verdict;
 - destructive operations and external writes stop at a human boundary;
 - unavailable providers fall back honestly instead of silently pretending;
 - a result without direct evidence is not complete.
@@ -37,7 +43,7 @@ Orkestar deliberately chooses constraints over agent theatre:
   browser-ops, task-manager, and the other installed definitions are reusable
   security boundaries, not a fixed workforce the human has to assemble.
 - **Band teams** — domain teams with their own flow:
-  - `dev` — dev-lead, dev-planner, dev-ticketer, dev-dag, dev-builder,
+  - `dev` — Lenka as lead, dev-planner, dev-ticketer, dev-dag, dev-builder,
     product-designer, dev-tester, dev-auditor (design when needed → plan →
     Taskavel tickets → DAG → build → prove)
   - more teams (email, travel, finance...) follow the same template
@@ -154,8 +160,12 @@ or Herdr.
 
 Use `lenka up solo` to start Solo when needed, import the current directory,
 show that exact project in the Solo window, and launch a clearly named process
-such as `Lenka — Cursor Agent` or `Lenka — Codex` there with the same verified
-harness and model route. Repeating the command
+such as `Lenka — Cursor Agent · Solo team` or `Lenka — Codex · Solo team`
+there with the same verified harness and model route. Before launch, Orkestar
+registers Solo's bundled MCP helper in the selected AI client without replacing
+other MCP servers. This gives Lenka visible Solo scratchpads, todos, and one-run
+worker processes instead of hiding the workflow inside a single agent session.
+Repeating the command
 reuses the matching running session, or restarts its newest stopped session,
 instead of adding another duplicate process.
 Solo is a workspace, not a provider: `lenka up solo codex` still uses only the
@@ -163,6 +173,13 @@ authenticated Codex route from that machine. Solo's HTTP API must be enabled;
 Orkestar starts the installed desktop app and waits for that API automatically.
 Its CLI can be on `PATH`; on macOS Orkestar also detects the bundled CLI in the
 standard Solo application location.
+
+Normal agent work is project-local. Lenka and her workers must not search the
+home directory, other repositories, or application settings to discover their
+team or model route. The launcher writes the verified route into the current
+project before the session starts. macOS may still request one-time access to
+the selected project folder when that folder is protected by the operating
+system.
 
 Solo 0.10 does not classify Cursor Agent as a built-in tool. Add it once in
 **Solo → Settings → Agents → Add tool** with the name `Cursor` and the command
@@ -418,6 +435,19 @@ every acceptance criterion to an independent method, the observed result, and
 direct evidence. For a shop, for example, that includes customer journeys,
 validation and authorization failures, persisted data and stock invariants,
 and visual/browser evidence on the relevant viewports.
+
+## Acceptance status
+
+The current revision is an acceptance-test candidate, not a claim that every
+harness has completed the full application workflow. Automated regressions and
+clean-room package installation are separate from live application proof.
+Use [the recipe notebook meetup brief](proofs/recipe-notebook-meetup.md) for the
+next Codex-in-Solo run. Codex uses native named subagents; they are not promised
+to appear as separate Solo processes. The identity-checked Solo worker adapter
+currently applies to OpenCode only. Live resumed permissions, complete workflow
+execution, and Taskavel board transitions must still be observed in that run.
+Automatic Solo MCP registration is not currently implemented for Kimi Code;
+that combination stops with an explicit error rather than claiming a connection.
 
 ## Dynamic agent factory
 

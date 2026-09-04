@@ -354,6 +354,7 @@ function launchInstalledRuntime(runtime, options) {
     const launched = launchInSolo(runtime, options, { locate: executable, launcherArgs });
     console.log(`Workspace: Solo (${launched.project.name})`);
     console.log(`Agent: ${launched.process.name} (${runtime.harness})`);
+    console.log(`Solo MCP: connected${launched.mcp.changed ? ' now' : ''}`);
     console.log(`Process: ${launched.process.id}`);
     console.log(`Session: ${launched.reused ? 'reused' : 'new'}`);
     return 0;

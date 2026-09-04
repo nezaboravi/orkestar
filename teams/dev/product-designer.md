@@ -16,6 +16,7 @@ permission:
     "git grep*": allow
     "ls *": allow
   task: deny
+  external_directory: deny
   skill: deny
 ---
 
@@ -58,3 +59,9 @@ backend work, or for a small visual bug.
   business rules.
 - Link each implementation criterion to a contract `required` item and flag any
   work that would exceed the semantic change surface.
+- When the charter supplies a dedicated Solo result scratchpad, replace only
+  that artifact with the requested JSON envelope. Put the design decisions in
+  evidence entries, under 100 lines. Return the scratchpad ID, revision, native
+  process ID, role and status; do not
+  repeat the full specification in the terminal. This coordination artifact is
+  permitted; changing application files remains forbidden.

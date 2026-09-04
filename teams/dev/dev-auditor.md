@@ -24,6 +24,7 @@ permission:
     "git log*": allow
     "ls *": allow
   task: deny
+  external_directory: deny
   skill: deny
 ---
 
@@ -63,3 +64,7 @@ the work is DONE, with evidence.
   checks, not proof that the requested user behavior works.
 - Reject `DONE` for a new or materially changed UI when either the product
   design specification or frontend visual proof is missing.
+- Reject `DONE` for any code change without an independent reviewer packet
+  covering both security and performance, APPROVED verdict, and re-review
+  evidence after repairs. UNVERIFIED is not PASS. NOT APPLICABLE requires a
+  concrete explanation tied to the changed surface.

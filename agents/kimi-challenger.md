@@ -15,6 +15,7 @@ permission:
     "git grep*": allow
     "git ls-files*": allow
   task: deny
+  external_directory: deny
   skill: deny
 ---
 

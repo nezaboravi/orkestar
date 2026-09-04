@@ -14,6 +14,7 @@ permission:
     "git log*": allow
     "git branch --show-current*": allow
   task: deny
+  external_directory: deny
   handoff_save: allow
   handoff_load: allow
   skill: deny
