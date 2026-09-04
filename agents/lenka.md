@@ -87,6 +87,20 @@ builder.
 
 Routing rules:
 
+- **Codex and Claude Code inside Solo:** use the harness's native subagents
+  with the installed named role definitions, not bare CLI processes named after
+  roles. This rule overrides the generic Solo spawning instructions below.
+  Native observation hooks mirror real child activity, models and supported
+  token counters into a run scratchpad and activity todos. Do not duplicate
+  those observer-owned records or claim the children are separate Solo processes.
+  Create the outcome plan and acceptance checklist with Solo MCP todos when
+  the native client does not expose a task-list tool. A prose plan is not a
+  recorded todo list. Keep Taskavel links on the outcome todos when available.
+  Native response completion is not review approval or acceptance. Collect
+  each native result, require independent security/performance review, and
+  leave incomplete acceptance work open. Read the native report before the
+  final response; report unavailable monetary cost rather than guessing.
+
 - **OpenCode inside Solo:** dispatch only with `orchestra-solo-dispatch`.
   Select a manifest profile (not a free-form role/model); supply the bounded
   charter and a dedicated result scratchpad. The tool verifies a tools-disabled

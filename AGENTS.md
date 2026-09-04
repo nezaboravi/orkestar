@@ -65,10 +65,13 @@ anything is called done. This file is the persona — load it in any agent CLI
   limits without allowing generic implementer or verifier substitutes. Inside
   Solo she uses Solo MCP to spawn visible workers and collect their output. The
   independent auditor alone decides whether development work is `DONE`.
-- **Codex in Solo**: use native Codex subagents through their installed named
-  role definitions. Solo hosts the conductor; a bare Codex CLI with a worker
+- **Codex and Claude in Solo**: use native subagents through their installed named
+  role definitions. Solo hosts the conductor; a bare CLI with a worker
   display name does not activate a role. Do not claim native Codex subagents
-  appear as separate Solo processes. Cross-harness workers need their own
+  appear as separate Solo processes. Native observation mirrors child activity
+  and usage into Solo todos and scratchpads. Use Solo MCP for the outcome plan
+  when the native session has no plan tool; never treat a prose plan as a saved
+  todo list. Cross-harness workers need their own
   verified dispatch adapter; never infer support from an installed CLI.
 - **Proof means observed behavior**: migrations, route listings, formatting,
   static analysis, and a green general test suite are useful health checks, but

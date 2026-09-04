@@ -367,6 +367,8 @@ function launchInSolo(runtime, options, dependencies = {}) {
     project = created.project;
   }
 
+  if (dependencies.bindObserver) dependencies.bindObserver({ project: projectPath,
+    projectId: project.id, soloBinary: binary, harness: runtime.harness });
   const processName = soloProcessName(runtime.harness);
   let existingProcesses = [];
   try {

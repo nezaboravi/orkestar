@@ -8,6 +8,21 @@ import test from 'node:test';
 const repoRoot = path.resolve(import.meta.dirname, '..');
 const cli = path.join(repoRoot, 'lenka.mjs');
 
+test('native report is separate from acceptance and rejects foreign project identity', () => {
+  const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lenka-observed-report-')));
+  const directory = path.join(project, '.agent-orchestra', 'runs');
+  fs.mkdirSync(directory, { recursive: true });
+  const file = path.join(directory, 'native-latest.json');
+  const audit = { observerSchema: 1, project, harness: 'claude', sessionId: 'observed',
+    status: 'PARTIAL', agents: [], totals: { tokens: null, cost: null }, verification: [], blockers: [] };
+  fs.writeFileSync(file, JSON.stringify(audit));
+  const result = spawnSync(process.execPath, [cli, 'report', 'last', '--project', project], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Native activity snapshot — not an acceptance verdict/);
+  fs.writeFileSync(file, JSON.stringify({ ...audit, project: '/different' }));
+  assert.equal(spawnSync(process.execPath, [cli, 'report', 'last', '--project', project]).status, 1);
+});
+
 test('Lenka CLI exposes the portable orchestration commands', () => {
   const result = spawnSync(process.execPath, [cli, '--help'], { encoding: 'utf8' });
   assert.equal(result.status, 0);
@@ -59,6 +74,22 @@ test('Lenka status reports the exact primary coordination route', () => {
   assert.match(result.stdout, /Model: gpt-5\.6-terra/);
   assert.match(result.stdout, /Reasoning effort: medium/);
   assert.match(result.stdout, /Agents: created on demand/);
+});
+
+for (const harness of ['codex', 'claude']) test(`Lenka ${harness} report preserves unknown usage and cost`, () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'lenka-native-report-'));
+  const directory = path.join(project, '.agent-orchestra', 'runs');
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, 'latest.json'), JSON.stringify({
+    harness, sessionId: 'native-test', status: 'PARTIAL',
+    agents: [{ agent: 'reviewer', model: null, tokens: null, cost: null }],
+    totals: { tokens: null, cost: null }, verification: [], blockers: ['Acceptance not proven'],
+  }));
+  const result = spawnSync(process.execPath, [cli, 'report', 'last', '--project', project], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /reviewer: unavailable — unavailable tokens — unavailable/);
+  assert.match(result.stdout, /Total: unavailable tokens — unavailable/);
+  assert.doesNotMatch(result.stdout, /\$0\.000000/);
 });
 
 test('Lenka defaults up to auto and the current project', async () => {

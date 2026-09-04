@@ -10,6 +10,9 @@ import { fileURLToPath } from 'node:url';
 import { herdrSessionName } from './session-name.mjs';
 import { launcherArgs } from './harness-launcher.mjs';
 import { findSoloCli, launchInSolo } from './solo-workspace.mjs';
+import { installNativeObserver } from './native-observer-install.mjs';
+import { refreshProjectRuntime } from './project-runtime-refresh.mjs';
+import { bindSoloObserver } from './native-solo-mirror.mjs';
 import {
   commandForHarness,
   connectOptionalTaskavel,
@@ -339,7 +342,9 @@ function shouldOpenHerdr(options, environment = process.env) {
   return options.herdr && environment.HERDR_ENV !== '1';
 }
 
-function launchInstalledRuntime(runtime, options) {
+async function launchInstalledRuntime(runtime, options) {
+  const refreshed = refreshProjectRuntime({ project: fs.realpathSync(options.project),
+    harness: runtime.harness, manifest: runtime.manifest });
   console.log('\nLenka is ready.');
   console.log(`Project: ${options.project}`);
   console.log(`Harness: ${runtime.harness}`);
@@ -347,16 +352,23 @@ function launchInstalledRuntime(runtime, options) {
   if (runtime.manifest.primary.reasoningEffort) {
     console.log(`Reasoning effort: ${runtime.manifest.primary.reasoningEffort}`);
   }
-  console.log('Runtime: previously verified; no reinstall or model probe');
+  console.log('Runtime: previously verified; no model probe');
+  if (refreshed.changed) console.log(`Project team: updated ${refreshed.changed} files; conflicting files backed up`);
   if (options.noLaunch) return 0;
 
   if (options.workspace === 'solo') {
-    const launched = launchInSolo(runtime, options, { locate: executable, launcherArgs });
+    const observation = ['codex', 'claude'].includes(runtime.harness)
+      ? await installNativeObserver({ project: fs.realpathSync(options.project), harness: runtime.harness,
+        nodeBinary: process.execPath, sourceRoot: repoRoot }) : null;
+    const launched = launchInSolo(runtime, options, { locate: executable, launcherArgs,
+      bindObserver: observation ? bindSoloObserver : null });
     console.log(`Workspace: Solo (${launched.project.name})`);
     console.log(`Agent: ${launched.process.name} (${runtime.harness})`);
     console.log(`Solo MCP: connected${launched.mcp.changed ? ' now' : ''}`);
     console.log(`Process: ${launched.process.id}`);
     console.log(`Session: ${launched.reused ? 'reused' : 'new'}`);
+    if (observation?.trustRequired) console.log(`Native observation: ${observation.trustInstruction}`);
+    if (observation?.changed && launched.reused) console.log('Observer updated: start a new native session to load the hooks; current work was preserved.');
     return 0;
   }
 
@@ -420,7 +432,7 @@ async function up(options) {
   await ensureHarnessAuthentication(harness, options.project);
   const installed = selectInstalledRuntime(options.project, harness);
   if (installed) {
-    const launched = launchInstalledRuntime(installed, options);
+    const launched = await launchInstalledRuntime(installed, options);
     if (launched !== null) return launched;
     console.log('\nHerdr is not ready on this machine; completing its one-time setup.');
   }
@@ -547,8 +559,12 @@ function report(options) {
   if (options.reportTarget && options.reportTarget !== 'last') {
     throw new Error('report currently supports only: lenka report last');
   }
-  const reportPath = path.join(options.project, '.agent-orchestra', 'runs', 'latest.json');
-  if (!fs.existsSync(reportPath)) {
+  const runsDirectory = path.join(options.project, '.agent-orchestra', 'runs');
+  const acceptancePath = path.join(runsDirectory, 'latest.json');
+  const nativePath = path.join(runsDirectory, 'native-latest.json');
+  const candidates = [acceptancePath, nativePath].filter(file => fs.existsSync(file));
+  const reportPath = candidates.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
+  if (!reportPath) {
     console.log(`No orchestra audit report exists for ${options.project}`);
     console.log('Run a non-trivial task with Lenka, then use: lenka report last');
     return 1;
@@ -560,14 +576,21 @@ function report(options) {
     throw new Error(`invalid orchestra audit report: ${reportPath}`);
   }
   if (audit.harness === 'opencode') audit = refreshOpenCodeAudit(audit, options.project);
+  if (reportPath === nativePath) {
+    if (audit.observerSchema !== 1 || audit.project !== fs.realpathSync(options.project)) throw new Error('Invalid native observation report scope');
+    console.log('Native activity snapshot — not an acceptance verdict.');
+    if (fs.existsSync(acceptancePath)) console.log(`Independent acceptance report remains separate: ${acceptancePath}`);
+  }
   console.log(`\nOrkestar run ${audit.status}`);
   console.log(`Harness: ${audit.harness}`);
   console.log(`Session: ${audit.sessionId}`);
   console.log(`Agents: ${audit.agents.length}`);
+  const tokens = value => Number.isSafeInteger(value) && value >= 0 ? String(value) : 'unavailable';
+  const cost = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? `$${value.toFixed(6)}` : 'unavailable';
   for (const agent of audit.agents) {
-    console.log(`- ${agent.agent}: ${agent.model} — ${agent.tokens.total} tokens — $${agent.cost.toFixed(6)}`);
+    console.log(`- ${agent.agent}: ${agent.model || 'unavailable'} — ${tokens(agent.tokens?.total)} tokens — ${cost(agent.cost)}`);
   }
-  console.log(`Total: ${audit.totals.tokens} tokens — $${audit.totals.cost.toFixed(6)}`);
+  console.log(`Total: ${tokens(audit.totals?.tokens)} tokens — ${cost(audit.totals?.cost)}`);
   if (audit.verification.length) {
     console.log('Verification:');
     for (const item of audit.verification) console.log(`- ${item}`);

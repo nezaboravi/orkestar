@@ -163,8 +163,13 @@ show that exact project in the Solo window, and launch a clearly named process
 such as `Lenka — Cursor Agent · Solo team` or `Lenka — Codex · Solo team`
 there with the same verified harness and model route. Before launch, Orkestar
 registers Solo's bundled MCP helper in the selected AI client without replacing
-other MCP servers. This gives Lenka visible Solo scratchpads, todos, and one-run
-worker processes instead of hiding the workflow inside a single agent session.
+other MCP servers. Solo holds the outcome plan and coordination scratchpads.
+Codex and Claude Code use native subagents: project-local observation hooks
+mirror their actual session identities, models and supported token counters
+into Solo scratchpads and activity todos, not fake worker processes. Codex asks
+you to review the exact hooks once through its native hook trust screen.
+Monetary cost remains `unavailable` when the client supplies no billing evidence.
+See [native observation](docs/NATIVE-OBSERVATION.md) for limits and verification.
 Repeating the command
 reuses the matching running session, or restarts its newest stopped session,
 instead of adding another duplicate process.
