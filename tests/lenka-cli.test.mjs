@@ -197,7 +197,7 @@ test('a stale verified route runs bootstrap before Lenka launches again', async 
   assert.deepEqual(launches, ['gpt-5.6-terra']);
   assert.equal(commands.length, 1);
   assert.equal(commands[0][0], process.platform === 'win32' ? 'powershell.exe' : 'sh');
-  assert.ok(commands[0][1].includes('--no-launch'));
+  assert.ok(commands[0][1].includes(process.platform === 'win32' ? '-NoLaunch' : '--no-launch'));
 });
 
 test('a runtime launch error other than route revalidation does not trigger bootstrap', async () => {
