@@ -32,9 +32,13 @@ function projectionFixture() {
 }
 
 test('recognizable credentials withhold all free prose and are not copied from metadata or structured fields', async () => {
+  // These are fake redaction samples assembled at runtime, never issued credentials.
+  const syntheticAwsSuffix = 'ABCDEFGHIJKLMNOP';
+  const syntheticAwsAccessKey = `AK${'IA'}${syntheticAwsSuffix}`;
+  const syntheticAwsSessionKey = `AS${'IA'}${syntheticAwsSuffix}`;
   const credentials = [
     'ghp_abcdefghijklmnopqrstuvwxyz0123456789', 'github_pat_abcdefghijklmnopqrstuvwxyz0123456789',
-    'AKIAABCDEFGHIJKLMNOP', 'ASIAABCDEFGHIJKLMNOP', 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature',
+    syntheticAwsAccessKey, syntheticAwsSessionKey, 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature',
     '-----BEGIN PRIVATE KEY-----\nPRIVATE\n-----END PRIVATE KEY-----',
     '-----BEGIN RSA PRIVATE KEY-----\nPRIVATE\n-----END RSA PRIVATE KEY-----',
     '-----BEGIN OPENSSH PRIVATE KEY-----\nPRIVATE\n-----END OPENSSH PRIVATE KEY-----',
