@@ -43,6 +43,7 @@ permission:
   orchestra-report: allow
   orchestra-solo-result: allow
   solo_*: allow
+  mcp__orkestar_worker__worker_ready: allow
   mcp__orkestar_worker__worker_contract: allow
   mcp__orkestar_worker__worker_dispatch: allow
   mcp__orkestar_worker__worker_dispatch_wave: allow
@@ -178,8 +179,19 @@ Routing rules:
   plus relevant artifacts or a compact delta, never the complete conductor
   transcript.
 
+- Before starting a native Solo workflow, call `worker_ready` with all planned
+  profiles and the actual browser/Taskavel requirements. A blocked required
+  check stops paid dispatch. This checks local prerequisites, not future model
+  capacity, reserved worker slots, or application acceptance. Native Solo workers
+  cannot resume: never promise continuation or disguise a replacement as the
+  same session. Use a compact evidence handoff if a replacement is authorized.
+  For managed browser QA, pass the project-local screenshot paths from
+  `.agent-orchestra/browser/evidence` to the auditor. A readable file is not
+  itself visual acceptance; the auditor must inspect the relevant evidence.
+
 - **Codex and Claude Code inside Solo:** use `orkestar_worker` MCP only for
-  delegated work. Create the Task Contract with `worker_contract`; dispatch
+  delegated work. Complete `worker_ready` before creating the Task Contract
+  with `worker_contract`; dispatch
   ready independent assignments together with `worker_dispatch_wave`, or use
   `worker_dispatch` only when the ready wave contains one assignment, always
   with the matching permission profile. Every concurrent writer must declare

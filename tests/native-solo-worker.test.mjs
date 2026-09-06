@@ -234,6 +234,7 @@ test('dispatch creates a real role process once, status binds exact project and 
   assert.ok(spawn.includes('99'));
   const launch = JSON.parse(fs.readFileSync(path.join(f.project, `.agent-orchestra/dispatch/native-${f.options.runId}.launch.json`)));
   assert.ok(launch.args.includes('exec')); assert.ok(launch.args.includes('features.plugins=false'));
+  assert.equal(launch.goal, contract.goal);
   const raw = fs.readFileSync(path.join(f.project, `.agent-orchestra/dispatch/native-${f.options.runId}.json`), 'utf8');
   assert.equal(raw.includes(task.goal), false);
   assert.equal(JSON.parse(raw).dispatchedAt, receipt.dispatchedAt);

@@ -51,7 +51,7 @@ output and basic credential filtering is not a guarantee against arbitrary secre
 
 ## Narrow conductor interface
 
-The project-local MCP server exposes `worker_contract`, `worker_dispatch`,
+The project-local MCP server exposes `worker_ready`, `worker_contract`, `worker_dispatch`,
 `worker_status`, `worker_result` and `worker_report`, plus seven bounded
 coordination tools documented in [Native coordination](NATIVE-COORDINATION.md).
 The conductor does not need shell or file
@@ -145,3 +145,30 @@ Windows path layouts; those fixtures are not substitutes for live OS acceptance.
 Credentials remain outside the distributable package. Missing authentication or
 unsupported capabilities must be reported explicitly, never silently inherited
 from the author's machine.
+
+
+## Readable worker windows (0.1.1)
+
+Worker windows show a short assignment header, readable activity updates, and
+the worker-reported result with checks and blockers. Paragraphs and lists are
+preserved. Structured native results and diagnostic streams remain in private
+evidence files; the displayed summary does not approve the work.
+
+After updating the installed package, `lenka up` refreshes the project worker
+files for subsequent launches. Already-finished Solo windows retain their
+historical output; installing an update cannot rewrite those recorded panes.
+
+## Local readiness (0.1.1)
+
+Before dispatch, Lenka calls `worker_ready` with the planned profiles and any
+required browser/Taskavel checks. It does not start an AI worker. Browser checks
+initialize the installed managed gateway, open `about:blank`, capture a PNG, and
+return its project-relative path, SHA-256 and byte count. Managed screenshots
+are stored under `.agent-orchestra/browser/evidence`, so project-scoped readers
+can access them. This is capture readiness, not application acceptance.
+
+Readiness is an explicit tool and conductor instruction, not a mandatory
+dispatch gate. It does not reserve provider capacity or future worker slots.
+Native Solo workers cannot resume a prior session; requesting continuation
+readiness returns BLOCKED. Existing running sessions need restarting after an
+update to load the new bridge and instructions.

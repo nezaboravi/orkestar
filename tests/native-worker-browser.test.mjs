@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { browserCandidates, browserEnvironment, browserScreenshotDirectory, BROWSER_TOOLS,
   installNativeWorkerBrowser, resolveNativeWorkerBrowser, resolveNativeWorkerNpm, PLAYWRIGHT_MCP_VERSION,
-  PLAYWRIGHT_MCP_INTEGRITY, browserProtocolGateway } from '../native-worker-browser.mjs';
+  PLAYWRIGHT_MCP_INTEGRITY, browserProtocolGateway, probeNativeWorkerBrowser } from '../native-worker-browser.mjs';
 
 function fixture() { return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'worker-browser-'))); }
 function installed(project) {
@@ -97,10 +97,58 @@ test('only frontend QA can request setup-backed browser config; no automatic ins
   assert.equal(fs.existsSync(path.join(project, '.agent-orchestra')), false);
 });
 
-test('screenshot output is a sanitized project directory under the canonical home', () => {
-  const base = fixture(); const project = path.join(base, 'app weird'); fs.mkdirSync(project);
-  assert.equal(browserScreenshotDirectory(project, base), path.join(base, 'Pictures/Screenshots/OpenCode/app-weird'));
-  assert.throws(() => browserScreenshotDirectory('relative', base), /canonical/);
+test('screenshot output is a private project evidence directory', () => {
+  const project = fixture(); installed(project);
+  const evidence = browserScreenshotDirectory(project);
+  assert.equal(evidence, path.join(project, '.agent-orchestra/browser/evidence'));
+  assert.equal(fs.statSync(evidence).mode & 0o077, 0);
+  assert.throws(() => browserScreenshotDirectory('relative'), /canonical/);
+});
+
+function readinessServer(project, mode = 'png') {
+  const script = path.join(project, `readiness-${mode}.cjs`);
+  fs.writeFileSync(script, `
+if (${JSON.stringify(mode)} === 'exit') process.exit(0);
+const fs = require('node:fs'); const path = require('node:path');
+const tools = ${JSON.stringify(BROWSER_TOOLS)};
+let buffer = '';
+process.stdin.setEncoding('utf8'); process.stdin.on('data', chunk => { buffer += chunk; let end;
+  while ((end = buffer.indexOf('\\n')) >= 0) { const line = buffer.slice(0, end); buffer = buffer.slice(end + 1); if (!line) continue; const row = JSON.parse(line);
+    if (row.id === undefined) continue;
+    if (row.method === 'tools/list') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:row.id,result:{tools:tools.map(name=>({name}))}})+'\\n');
+    else if (row.method === 'tools/call' && row.params.name === 'browser_take_screenshot') {
+      const output = path.join(process.argv[2], row.params.arguments.filename);
+      if (${JSON.stringify(mode)} === 'symlink') fs.symlinkSync(path.join(process.argv[2], 'outside.png'), output);
+      else fs.writeFileSync(output, Buffer.from(${JSON.stringify(mode === 'png' ? [137, 80, 78, 71, 13, 10, 26, 10, 0] : [0, 1, 2])}));
+      process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:row.id,result:{content:[]}})+'\\n');
+    } else process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:row.id,result:{capabilities:{},content:[]}})+'\\n');
+  }
+});`);
+  return script;
+}
+
+test('readiness probe uses managed MCP protocol and returns a signed project-local PNG artifact', async () => {
+  const project = fixture(); installed(project); const outputDir = browserScreenshotDirectory(project);
+  const script = readinessServer(project);
+  const ready = await probeNativeWorkerBrowser({ project }, { uuid: () => 'a1234567-1234-4123-8123-123456789012', now: () => 123,
+    resolve: () => ({ outputDir, server: { command: process.execPath, args: [script, outputDir] } }) });
+  assert.deepEqual(ready, { ready: true, artifact: { relativePath: '.agent-orchestra/browser/evidence/a1234567-1234-4123-8123-123456789012.png',
+    sha256: '843ac23b1736b4487ec81cf7c07ddd9bb46ae5b7818c2c3843d99d62fa75f3c9', bytes: 9 }, checkedAt: 123 });
+});
+
+test('readiness probe rejects symlinked or non-PNG screenshots and never accepts an arbitrary output directory', async () => {
+  const project = fixture(); installed(project); const outputDir = browserScreenshotDirectory(project);
+  const script = readinessServer(project, 'symlink');
+  await assert.rejects(() => probeNativeWorkerBrowser({ project }, { uuid: () => 'a1234567-1234-4123-8123-123456789012',
+    resolve: () => ({ outputDir, server: { command: process.execPath, args: [script, outputDir] } }) }), /unsafe|out of bounds/);
+  await assert.rejects(() => probeNativeWorkerBrowser({ project }, { resolve: () => ({ outputDir: path.join(project, 'elsewhere'), server: { command: process.execPath, args: [script, outputDir] } }) }), /unsafe managed evidence/);
+});
+
+test('readiness probe rejects an early clean managed-server exit without waiting for its timeout', async () => {
+  const project = fixture(); installed(project); const outputDir = browserScreenshotDirectory(project);
+  const script = readinessServer(project, 'exit');
+  await assert.rejects(() => probeNativeWorkerBrowser({ project }, { timeoutMs: 20000,
+    resolve: () => ({ outputDir, server: { command: process.execPath, args: [script, outputDir] } }) }), /exited before readiness/);
 });
 
 test('pinned package integrity mismatch and symlinked managed directories fail closed', () => {

@@ -213,7 +213,7 @@ function claudeAgent(agent, selectedModel = null) {
     }
     if (permission && permission.task !== 'deny') allowed.add('Task');
     if (agent.name === 'lenka') {
-      for (const name of ['worker_contract', 'worker_dispatch', 'worker_dispatch_wave', 'worker_status', 'worker_result', 'worker_report',
+      for (const name of ['worker_ready', 'worker_contract', 'worker_dispatch', 'worker_dispatch_wave', 'worker_status', 'worker_result', 'worker_report',
         'coord_todo_list', 'coord_todo_create', 'coord_todo_update', 'coord_scratchpad_list',
         'coord_scratchpad_read', 'coord_scratchpad_create', 'coord_scratchpad_append']) {
         const tool = `mcp__orkestar_worker__${name}`;

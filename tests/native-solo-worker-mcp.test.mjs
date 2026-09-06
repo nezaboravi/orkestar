@@ -61,6 +61,22 @@ test('worker UUID validation explains invalid dispatch and report IDs without ex
   assert.equal(calls, 0);
 });
 
+test('worker_ready derives project and harness from the server and accepts only bounded readiness options', async () => {
+  const root = project(), calls = [];
+  const handle = createWorkerMcpHandler({ project: root, harness: 'claude' }, { readiness: async input => {
+    calls.push(input); return { status: 'ready', ready: true, continuationSupported: false };
+  } });
+  await ready(handle);
+  const response = await handle(call(2, 'worker_ready', { profiles: ['code-review', 'ui-verify'], requireBrowser: true, requireTaskavel: false,
+    requireContinuation: false, plannedWorkerCount: 12 }));
+  assert.equal(response.result.isError, false);
+  assert.deepEqual(calls, [{ project: root, harness: 'claude', profiles: ['code-review', 'ui-verify'], requireBrowser: true, requireTaskavel: false,
+    requireContinuation: false, plannedWorkerCount: 12 }]);
+  assert.equal((await handle(call(3, 'worker_ready', { profiles: ['browser'] }))).error.code, -32602);
+  assert.equal((await handle(call(4, 'worker_ready', { profiles: ['code-review'], plannedWorkerCount: 13 }))).error.code, -32602);
+  assert.equal((await handle(call(5, 'worker_ready', { profiles: ['code-review'], project: '/other' }))).error.code, -32602);
+});
+
 test('MCP Taskavel profile carries a closed authorization charter without accepting endpoint or model overrides', async () => {
   const root = project(), dispatched = [];
   const handle = createWorkerMcpHandler({ project: root, harness: 'claude' }, { api: {
@@ -154,7 +170,7 @@ test('MCP closed contract creation and dispatch derive trusted project/harness',
   assert.equal((await handle(request(0, 'tools/list'))).error.code, -32002);
   await ready(handle);
   const listed = (await handle(request(2, 'tools/list'))).result.tools;
-  assert.equal(listed.length, 14);
+  assert.equal(listed.length, 15);
   assert.match(listed.find(tool => tool.name === 'worker_dispatch').description, /ui-verify requires the explicitly preinstalled pinned browser gateway/);
   const created = await handle(call(3, 'worker_contract', draft));
   const contract = JSON.parse(created.result.content[0].text);
@@ -377,7 +393,7 @@ test('real MCP executable initialize/tools list require no AI or Solo launch', (
   const run = spawnSync(process.execPath, [script, '--project', root, '--harness', 'claude'], { encoding: 'utf8', input: `${frames.map(JSON.stringify).join('\n')}\n`, timeout: 5000 });
   assert.equal(run.status, 0); assert.equal(run.stderr, '');
   const rows = run.stdout.trim().split('\n').map(JSON.parse);
-  assert.equal(rows.length, 2); assert.equal(rows[1].result.tools.length, 14);
+  assert.equal(rows.length, 2); assert.equal(rows[1].result.tools.length, 15);
   assert.deepEqual(fs.readdirSync(root), []);
   assert.throws(() => parseWorkerMcpLaunch(['--project', root, '--command', 'unsafe']), /Invalid/);
 });

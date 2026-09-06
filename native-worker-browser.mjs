@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 export const PLAYWRIGHT_MCP_VERSION = '0.0.80';
@@ -35,6 +35,11 @@ function read(file) {
 }
 function managedRoot(project, create = false) {
   return ownedDirectory(ownedDirectory(canonicalDirectory(project), '.agent-orchestra', create), 'browser', create);
+}
+function managedEvidenceDirectory(project, create = false) {
+  const directory = ownedDirectory(managedRoot(project, create), 'evidence', create);
+  if ((fs.statSync(directory).mode & 0o077) !== 0) fs.chmodSync(directory, 0o700);
+  return directory;
 }
 
 // Same browser families and platform locations as adapters/opencode/tools/browser-discovery.ts.
@@ -142,16 +147,8 @@ export function installNativeWorkerBrowser({ project }, { invoke = spawnSync } =
   return { ...dependency(project), browserBinary, installed: true };
 }
 
-export function browserScreenshotDirectory(project, home = os.homedir()) {
-  canonicalDirectory(project); canonicalDirectory(home);
-  const slug = path.basename(project).replace(/[^A-Za-z0-9._-]/g, '-');
-  if (!slug || slug === '.' || slug === '..') throw new Error('Invalid screenshot project name');
-  let directory = home;
-  for (const segment of ['Pictures', 'Screenshots', 'OpenCode', slug]) {
-    directory = path.join(directory, segment);
-    try { canonicalDirectory(directory); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-  }
-  return directory;
+export function browserScreenshotDirectory(project) {
+  return managedEvidenceDirectory(project, true);
 }
 
 /** Immutable client config; the CLI below independently revalidates before starting MCP. */
@@ -171,6 +168,73 @@ export function resolveNativeWorkerBrowser({ project, role }) {
       '--output-dir', outputDir, '--codegen', 'none'], env: browserEnvironment() },
     limitations: ['Browser interactions can change application data; the role must honor the approved QA scope.',
       'Browser isolation and tool allowlists are not an origin security boundary.'] });
+}
+
+function browserProbeError(message) { throw new Error(`Browser readiness probe failed: ${message}`); }
+function safeProbeResult(row) {
+  if (!row || row.error || !row.result || row.result.isError === true) browserProbeError('browser MCP returned an error');
+  return row.result;
+}
+function expectedProbeArtifact(project, outputDir, basename) {
+  const canonicalProject = canonicalDirectory(project);
+  const expectedDirectory = browserScreenshotDirectory(canonicalProject);
+  if (outputDir !== expectedDirectory || fs.realpathSync(outputDir) !== outputDir || !/^[a-f0-9-]{36}\.png$/.test(basename)) browserProbeError('unsafe managed evidence directory');
+  return path.join(outputDir, basename);
+}
+
+/**
+ * Verify the installed, managed MCP can create a bounded PNG in the project.
+ * This is readiness evidence only; it makes no UI acceptance claim.
+ */
+export async function probeNativeWorkerBrowser({ project }, { resolve = resolveNativeWorkerBrowser, spawnProcess = spawn, now = () => Date.now(), uuid = randomUUID, timeoutMs = 20000 } = {}) {
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 20000) throw new Error('Invalid browser readiness timeout');
+  const canonicalProject = canonicalDirectory(project);
+  const config = resolve({ project: canonicalProject, role: 'frontend-qa' });
+  const basename = `${uuid()}.png`;
+  const artifact = expectedProbeArtifact(canonicalProject, config.outputDir, basename);
+  const child = spawnProcess(config.server.command, config.server.args, { cwd: canonicalProject, env: browserEnvironment(), stdio: ['pipe', 'pipe', 'ignore'], shell: false });
+  if (!child?.stdin || !child?.stdout || typeof child.kill !== 'function') browserProbeError('managed browser could not start');
+  let buffer = '', nextId = 0, closed = false;
+  const pending = new Map();
+  const fail = error => { for (const request of pending.values()) request.reject(error); pending.clear(); };
+  const close = () => { if (!closed) { closed = true; child.stdin.end(); child.kill(); } };
+  const timer = setTimeout(() => fail(new Error('Browser readiness probe timed out')), timeoutMs);
+  child.once('error', () => fail(new Error('Managed browser could not start')));
+  child.once('exit', () => { if (!closed) fail(new Error('Managed browser exited before readiness completed')); });
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', chunk => {
+    try {
+      buffer += chunk;
+      if (Buffer.byteLength(buffer) > 16 * 1024 * 1024) throw new Error('Oversized browser readiness response');
+      let end;
+      while ((end = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+        if (!line.trim()) continue;
+        const row = JSON.parse(line);
+        if (!Number.isSafeInteger(row.id) || !pending.has(row.id)) throw new Error('Unbound browser readiness response');
+        const request = pending.get(row.id); pending.delete(row.id); request.resolve(row);
+      }
+    } catch (error) { fail(error); }
+  });
+  const call = (method, params = {}) => new Promise((resolveRequest, reject) => {
+    const id = ++nextId; pending.set(id, { resolve: resolveRequest, reject });
+    try { child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n', error => { if (error) { pending.delete(id); reject(error); } }); }
+    catch (error) { pending.delete(id); reject(error); }
+  });
+  try {
+    safeProbeResult(await call('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'orkestar-readiness', version: '1' } }));
+    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+    const inventory = safeProbeResult(await call('tools/list'));
+    if (!Array.isArray(inventory.tools) || inventory.tools.length !== BROWSER_TOOLS.length || new Set(inventory.tools.map(tool => tool?.name)).size !== BROWSER_TOOLS.length
+      || inventory.tools.some(tool => !BROWSER_TOOLS.includes(tool?.name))) browserProbeError('browser tool inventory is incomplete');
+    safeProbeResult(await call('tools/call', { name: 'browser_navigate', arguments: { url: 'about:blank' } }));
+    safeProbeResult(await call('tools/call', { name: 'browser_take_screenshot', arguments: { type: 'png', filename: basename } }));
+    const stat = fs.lstatSync(artifact);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 8 || stat.size > 16 * 1024 * 1024) browserProbeError('screenshot artifact is unsafe or out of bounds');
+    const bytes = fs.readFileSync(artifact);
+    if (!bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) browserProbeError('screenshot artifact is not a PNG');
+    return { ready: true, artifact: { relativePath: path.relative(canonicalProject, artifact), sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }, checkedAt: now() };
+  } finally { clearTimeout(timer); close(); }
 }
 
 /** Closed JSON-RPC gateway: tool authorization is enforced here, not entrusted to clients. */
@@ -261,8 +325,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === self) {
   try {
     if (process.argv.length !== 5 || process.argv[2] !== '--serve' || process.argv[3] !== '--project') throw new Error('Invalid browser server invocation');
     const config = resolveNativeWorkerBrowser({ project: process.argv[4], role: 'frontend-qa' });
-    let directory = canonicalDirectory(os.homedir());
-    for (const segment of path.relative(directory, config.outputDir).split(path.sep)) directory = ownedDirectory(directory, segment, true);
+    const directory = canonicalDirectory(config.outputDir);
     const child = spawn(config.launch.command, config.launch.args, { cwd: directory, env: config.launch.env, stdio: ['pipe', 'pipe', 'inherit'], shell: false });
     proxyBrowserProtocol(child);
     child.on('error', () => { process.stderr.write('Managed browser MCP could not start.\n'); process.exitCode = 1; });

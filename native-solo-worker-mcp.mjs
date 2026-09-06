@@ -13,6 +13,7 @@ import { nativeReviewCoverage } from './native-worker-review.mjs';
 import { MAX_WORKER_SESSIONS } from './orchestra-limits.mjs';
 import { createWorkerSessionBudget } from './native-worker-budget.mjs';
 import { validateWaveOwnership, WORKER_OWNERSHIP_ERRORS } from './native-worker-ownership.mjs';
+import { inspectNativeWorkerReadiness } from './native-worker-readiness.mjs';
 
 export const MAX_FRAME = 131072;
 const MAX_RESPONSE = 524288;
@@ -38,6 +39,9 @@ const waveAssignmentSchema = object({ profile: { type: 'string', enum: waveProfi
   task: taskSchema, ownership: ownershipSchema }, ['profile', 'name', 'runId', 'contract', 'task']);
 const draftSchema = object(Object.fromEntries(Object.entries(contractSchema.properties).filter(([key]) => !['id', 'hash'].includes(key))));
 const timestamp = { type: 'integer', minimum: 0 };
+const readinessSchema = object({ profiles: { type: 'array', minItems: 1, maxItems: 10, items: { type: 'string', enum: profiles } },
+  requireBrowser: { type: 'boolean' }, requireTaskavel: { type: 'boolean' }, requireContinuation: { type: 'boolean' },
+  plannedWorkerCount: { type: 'integer', minimum: 0, maximum: MAX_WORKER_SESSIONS } }, ['profiles']);
 const trackerSchema = object({ projectId: string(256), checkedAt: timestamp,
   maxSnapshotAgeMs: { type: 'integer', minimum: 1, maximum: 300000 },
   requiredTasks: { type: 'array', minItems: 1, maxItems: 1000, items: object({ taskId: string(256), doneColumnId: string(256),
@@ -53,6 +57,8 @@ const reportSchema = object({ reportId: runId, contract: contractSchema,
 }, ['reportId', 'contract', 'workerRunIds', 'status', 'summary', 'workflow', 'designRequired', 'visualProofRequired', 'taskavel', 'blockers']);
 const definitions = [
   ...coordinationToolDefinitions,
+  { name: 'worker_ready', description: 'Check local readiness for selected worker profiles. It performs no AI request or worker launch. When requireBrowser:true it writes one bounded managed PNG artifact in the project, then reads it back; it does not check provider capacity, prove app acceptance, or make native workers resumable.',
+    inputSchema: readinessSchema, annotations: { readOnlyHint: false, openWorldHint: true } },
   { name: 'worker_wait', description: 'Wait up to 20 seconds for one receipt-bound worker to exit. Repeat when ready:false. Does not use Solo timers or imply acceptance; collect worker_result when ready:true.',
     inputSchema: object({ runId }), annotations: { readOnlyHint: true, openWorldHint: false } },
   { name: 'worker_contract', description: 'Create and persist a bounded immutable task contract in this project. Requirement IDs must be unique R1, R2, R3 etc; example required:[{id:"R1",text:"Observed expected behavior"}]. The server computes contract ID and hash; no shell or file editing is needed. Existing contracts are never overwritten.',
@@ -165,7 +171,7 @@ function persistContract(project, contract) {
 }
 
 /** Only launch configuration supplies project/harness; tool inputs cannot change either. */
-export function createWorkerMcpHandler({ project, harness }, { api = workerApi, projectSummary = projectNativeWorkerSummary } = {}) {
+export function createWorkerMcpHandler({ project, harness }, { api = workerApi, projectSummary = projectNativeWorkerSummary, readiness = inspectNativeWorkerReadiness } = {}) {
   if (!path.isAbsolute(project ?? '') || fs.realpathSync(project) !== project || !fs.statSync(project).isDirectory()
     || !['codex', 'claude'].includes(harness)) throw new Error('Invalid worker MCP launch scope');
   let initialized = false, ready = false, active = 0;
@@ -220,7 +226,9 @@ export function createWorkerMcpHandler({ project, harness }, { api = workerApi, 
     try {
       let result;
       const args = params.arguments;
-      if (tool.name.startsWith('coord_')) {
+      if (tool.name === 'worker_ready') {
+        result = await readiness({ project, harness, ...args });
+      } else if (tool.name.startsWith('coord_')) {
         result = await coordinateNativeSolo({ project, harness, name: tool.name, args });
       } else if (tool.name === 'worker_contract') {
         result = createTaskContract(args); persistContract(project, result);

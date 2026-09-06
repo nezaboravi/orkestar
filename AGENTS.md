@@ -86,7 +86,10 @@ anything is called done. This file is the persona — load it in any agent CLI
   Solo she uses Solo MCP to spawn visible workers and collect their output. The
   independent auditor alone decides whether development work is `DONE`.
 - **Codex and Claude in Solo**: use the project-local `orkestar_worker` MCP
-  bridge: create an immutable contract, dispatch each ready independent group
+  bridge: call `worker_ready` for planned profiles and required browser/tracker
+  checks before paid dispatch. Stop on required blocked checks. Readiness does
+  not reserve provider capacity or worker slots; native workers cannot resume.
+  Create an immutable contract, dispatch each ready independent group
   with `worker_dispatch_wave` (or `worker_dispatch` for a one-node wave), collect
   `worker_status`/`worker_result`, and finalize with
   `worker_report`. These are real independently selectable Solo processes with

@@ -53,7 +53,7 @@ test('Claude conductor receives only exact worker MCP permissions without edit o
     resolvedModelsByTool: { claude: {} }, resolvedFactoryModelsByTool: { claude: {} } });
   const conductor = plan.operations.find(item => item.target.endsWith('/.claude/agents/lenka.md')).content.toString();
   const frontmatter = conductor.split('---')[1];
-  for (const tool of ['worker_contract', 'worker_dispatch', 'worker_dispatch_wave', 'worker_status', 'worker_result', 'worker_report',
+  for (const tool of ['worker_ready', 'worker_contract', 'worker_dispatch', 'worker_dispatch_wave', 'worker_status', 'worker_result', 'worker_report',
     'coord_todo_list', 'coord_todo_create', 'coord_todo_update', 'coord_scratchpad_list',
     'coord_scratchpad_read', 'coord_scratchpad_create', 'coord_scratchpad_append']) {
     assert.match(frontmatter, new RegExp(`  - mcp__orkestar_worker__${tool}\\n`));
@@ -138,7 +138,7 @@ test('Lenka leads a flat audited workflow without generic implementation fallbac
   const openCodeSolo = lenka.body.split('**OpenCode inside Solo:**')[1]?.split('- Treat Taskavel')[0];
   assert.ok(nativeSolo, 'Codex and Claude require an explicit Solo routing boundary');
   assert.match(nativeSolo, /`orkestar_worker` MCP only/);
-  for (const tool of ['worker_contract', 'worker_dispatch', 'worker_dispatch_wave', 'worker_status', 'worker_result', 'worker_report']) {
+  for (const tool of ['worker_ready', 'worker_contract', 'worker_dispatch', 'worker_dispatch_wave', 'worker_status', 'worker_result', 'worker_report']) {
     assert.ok(nativeSolo.includes(`\`${tool}\``), `Native Solo workflow requires ${tool}`);
   }
   assert.match(nativeSolo, /Never substitute\s+native hidden children, raw Solo spawning/);

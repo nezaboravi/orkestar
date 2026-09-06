@@ -270,7 +270,10 @@ export function dispatchNativeSoloWorker(options, { invoke = spawnSync } = {}) {
   if (launch.taskavelLaunch) receipt.taskavelAuthorization = launch.taskavelLaunch.authorization;
   const fd = fs.openSync(file, 'wx', 0o600);
   try {
-    const encoded = JSON.stringify({ project, runId, harness, role, name, model: route.model, binary, args: launch.args });
+    // The descriptor is private (0600). Keeping the validated contract goal here
+    // lets the visible wrapper identify the bounded work without inspecting the
+    // provider prompt or retaining raw provider output.
+    const encoded = JSON.stringify({ project, runId, harness, role, name, model: route.model, goal: task.contract.goal, binary, args: launch.args });
     receipt.liveLaunchHash = hash(encoded);
     receipt.outputFormat = 'private-native-stream-v1';
     fs.writeFileSync(file.replace(/\.json$/, '.launch.json'), encoded, { flag: 'wx', mode: 0o600 });

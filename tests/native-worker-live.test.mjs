@@ -29,17 +29,38 @@ test('dedicated registration is exact, unique and never falls back to another to
   assert.equal(spawnSync('/bin/sh', ['-c', 'printf %s ' + liveWorkerCommand(spaced)], { encoding: 'utf8' }).stdout, spaced);
   for (const tools of [[], [tool, tool], [{ ...tool, command: 'node' }], [{ ...tool, toolType: 'codex' }]]) assert.throws(() => liveWorkerTool(tools), /one-time setup/);
 });
-test('renderer shows bounded prose and usage, not command output or control sequences', () => {
+test('renderer shows bounded readable prose and usage, not command output or control sequences', () => {
   let output = ''; const render = createLiveRenderer(value => { output += value; });
   const raw = [
     { type: 'thread.started', thread_id: 'private-session-id' },
     { type: 'item.completed', item: { type: 'command_execution', command: 'secret command', aggregated_output: 'secret tool output' } },
-    { type: 'item.completed', item: { type: 'agent_message', text: 'Verified café. token=abc \u001b[31m' } },
+    { type: 'item.completed', item: { type: 'agent_message', text: 'Verified café. token=abc and ghp_abcdefghijklmnopqrstuvwx \u001b[31m' } },
     { type: 'turn.completed', usage: { input_tokens: 100, cached_input_tokens: 80, output_tokens: 10 } },
   ].map(JSON.stringify).join('\n') + '\n';
   const bytes = Buffer.from(raw); for (const byte of bytes) render(Buffer.from([byte]));
-  assert.match(output, /café/); assert.match(output, /Cached input: 80/);
-  assert.doesNotMatch(output, /secret command|secret tool output|private-session-id|abc|\u001b|thread.started/);
+  assert.match(output, /café/); assert.match(output, /Ran a project command/); assert.match(output, /Cached input: 80/);
+  assert.doesNotMatch(output, /secret command|secret tool output|private-session-id|abc|ghp_abcdefghijklmnopqrstuvwx|\u001b|thread.started|Step 1/);
+});
+test('renderer preserves paragraphs and lists across multibyte chunks, and renders bounded structured worker evidence', () => {
+  let output = ''; const render = createLiveRenderer(value => { output += value; });
+  const result = JSON.stringify({ verdict: 'PARTIAL', reviewRunId: 'private-review-id', reviewedRunIds: ['also-private'],
+    proof: [{ criterionId: 'badge-visible', result: 'passed', method: 'raw command --secret', evidence: 'private output' }],
+    checks: ['Visible badge\n- tied leaders\n- positive votes'], security: ['No secret=abc leaked'], performance: ['No extra query'], blockers: ['Visual check remains blocked; github_pat_abcdefghijklmnopqrstuvwx is private'] });
+  const rows = [{ type: 'thread.started', thread_id: 'private' }, { type: 'item.completed', item: { type: 'agent_message', text: 'First paragraph.\n\n- one\n- two\n\nSecond paragraph.' } }, { type: 'result', result }]
+    .map(JSON.stringify).join('\n') + '\n';
+  for (const byte of Buffer.from(rows)) render(Buffer.from([byte]));
+  assert.match(output, /First paragraph\.\n\n- one\n- two\n\nSecond paragraph/);
+  assert.match(output, /Worker-reported verdict: PARTIAL\. This is not final acceptance/);
+  assert.match(output, /Proof badge-visible: passed/); assert.match(output, /Security: No secret=\[redacted\] leaked/);
+  assert.doesNotMatch(output, /private-review-id|also-private|raw command|private output|github_pat_abcdefghijklmnopqrstuvwx/);
+});
+test('renderer handles Claude text, failures, and does not redact ordinary task-manager text', () => {
+  let output = ''; const render = createLiveRenderer(value => { output += value; });
+  const rows = [{ type: 'system', subtype: 'init' }, { type: 'assistant', message: { content: [{ type: 'text', text: 'Task-manager checked the tracker; gho_abcdefghijklmnopqrstuvwx stays private.' }, { type: 'tool_use', name: 'private' }] } },
+    { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'private' }] } }, { type: 'result', subtype: 'error', is_error: true, result: 'password=letmein' }].map(JSON.stringify).join('\n') + '\n';
+  render(Buffer.from(rows));
+  assert.match(output, /Task-manager checked the tracker/); assert.match(output, /Worker reported a failure/);
+  assert.match(output, /password=\[redacted\]/); assert.doesNotMatch(output, /letmein|gho_abcdefghijklmnopqrstuvwx/);
 });
 test('real wrapper retains private exact raw evidence and verifies receipt binding', () => {
   const raw = [{ type: 'thread.started', thread_id: 'fixture' }, { type: 'item.completed', item: { type: 'agent_message', text: 'Verified outcome.' } }, { type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } }].map(JSON.stringify).join('\n') + '\n';

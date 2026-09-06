@@ -10,7 +10,19 @@ const LIMIT = 1024 * 1024;
 const hash = text => createHash('sha256').update(text).digest('hex');
 export const liveWorkerCommand = (node = process.execPath, platform = process.platform) => platform === 'win32'
   ? `"${node.replaceAll('"', '')}"` : `'${node.replaceAll("'", "'\\''")}'`;
-const safe = text => String(text).replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').replace(/(?:Bearer\s+\S+|sk-[\w-]+|(?:token|secret|password|api[_-]?key)\s*[:=]\s*\S+)/gi, '[redacted]').slice(0, 2400);
+const REDACTED = '[redacted]';
+const redact = text => String(text)
+  // Keep ordinary paragraphs and lists, but never let terminal controls affect Solo.
+  .replace(/\r\n?/g, '\n').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, ' ')
+  .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, REDACTED)
+  // A credential has a boundary and a substantial body. This deliberately does
+  // not treat ordinary words such as "task-manager" as an API key.
+  .replace(/(?:^|[^A-Za-z0-9_])sk-[A-Za-z0-9_-]{16,}/g, value => value.startsWith('sk-') ? REDACTED : `${value[0]}${REDACTED}`)
+  .replace(/\bgh[opusr]_[A-Za-z0-9_]{20,}\b/g, REDACTED)
+  .replace(/\bgithub_pat_[A-Za-z0-9_]{20,}\b/g, REDACTED)
+  .replace(/((?:token|secret|password|api[_-]?key)\s*[":=]\s*)[^\s,}"\]]+/gi, `$1${REDACTED}`);
+const safe = (text, max = 2400) => redact(text).replace(/\n{3,}/g, '\n\n').slice(0, max);
+const safeInline = (text, max = 240) => safe(text, max).replace(/\s*\n\s*/g, ' ').trim();
 const TRUST_ERROR = Buffer.from('Not inside a trusted directory and --skip-git-repo-check was not specified.');
 const TRUST_DIAGNOSTIC = Object.freeze({ code: 'CODEX_TRUSTED_DIRECTORY_REQUIRED',
   message: 'Codex refused to start outside a trusted Git directory. The Orkestar launcher must handle the approved project explicitly; no agent work was verified.' });
@@ -72,8 +84,53 @@ export function readLiveWorkerOutput(project, receipt) {
   if (done.schemaVersion !== undefined && done.schemaVersion !== 1) throw new Error('Unsupported native evidence version');
   return { raw, diagnostic: done.diagnostic, truncated: done.truncated, exitCode: done.exitCode, ...startup };
 }
+function workerSummary(text) {
+  if (typeof text !== 'string' || Buffer.byteLength(text) > 32768) return null;
+  let value; try { value = JSON.parse(text); } catch { return null; }
+  if (!value || Array.isArray(value) || typeof value !== 'object') return null;
+  const verdict = ['DONE', 'PARTIAL', 'FAILED'].includes(value.verdict) ? value.verdict : null;
+  const lines = verdict ? [`Worker-reported verdict: ${verdict}. This is not final acceptance.`] : [];
+  const entries = (label, input) => {
+    if (!Array.isArray(input)) return;
+    for (const item of input.slice(0, 8)) if (typeof item === 'string' && item.trim()) lines.push(`${label}: ${safeInline(item, 320)}`);
+  };
+  entries('Check', value.checks); entries('Security', value.security); entries('Performance', value.performance); entries('Blocker', value.blockers);
+  if (Array.isArray(value.proof)) for (const proof of value.proof.slice(0, 8)) {
+    if (!proof || typeof proof !== 'object' || Array.isArray(proof)) continue;
+    const criterion = typeof proof.criterionId === 'string' && /^[A-Za-z0-9_.-]{1,80}$/.test(proof.criterionId) ? proof.criterionId : null;
+    const result = typeof proof.result === 'string' && /^(pass(?:ed)?|fail(?:ed)?|partial|blocked|not applicable)$/i.test(proof.result.trim()) ? proof.result.trim() : null;
+    if (criterion && result) lines.push(`Proof ${criterion}: ${result}.`);
+  }
+  return lines.length ? lines.join('\n') : null;
+}
+function prose(text) {
+  const summary = workerSummary(text);
+  return summary ?? safe(text);
+}
+function activity(row) {
+  const item = row?.item;
+  const type = item?.type ?? row?.type;
+  if (['command_execution', 'command', 'bash'].includes(type)) return 'Ran a project command.';
+  if (['mcp_tool_call', 'tool_use', 'tool_result'].includes(type)) return 'Used an approved tool.';
+  if (['file_change', 'file_edit', 'write_file', 'patch'].includes(type)) return 'Updated project files.';
+  if (['file_read', 'read_file'].includes(type)) return 'Inspected project files.';
+  return null;
+}
+function claudeText(row) {
+  if (row?.type !== 'assistant' || !Array.isArray(row.message?.content)) return [];
+  return row.message.content.filter(part => part?.type === 'text' && typeof part.text === 'string').map(part => part.text);
+}
 export function createLiveRenderer(write) {
-  let buffer = '', count = 0; const decoder = new StringDecoder('utf8');
+  let buffer = '', activities = 0, rendered = 0; const decoder = new StringDecoder('utf8');
+  const emit = value => {
+    if (!value || rendered >= 49152) return;
+    const bounded = String(value).slice(0, 49152 - rendered);
+    rendered += Buffer.byteLength(bounded); write(bounded);
+  };
+  const noteActivity = row => {
+    const value = activity(row);
+    if (value && activities < 40) { activities++; emit(`${value}\n`); }
+  };
   return chunk => {
     buffer += decoder.write(chunk);
     if (Buffer.byteLength(buffer) > NATIVE_EVENT_LIMIT) throw new Error('Live event exceeds bound');
@@ -81,19 +138,21 @@ export function createLiveRenderer(write) {
     while ((end = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
       let row; try { row = JSON.parse(line); } catch { continue; }
-      if (row.type === 'thread.started' || (row.type === 'system' && row.subtype === 'init')) write('Session started.\n');
+      if (row.type === 'thread.started' || (row.type === 'system' && row.subtype === 'init')) emit('Session started.\n');
       const item = row.item;
-      if (row.type === 'item.completed' && item?.type === 'agent_message') write(`${safe(item.text)}\n\n`);
-      else if (row.type === 'item.completed') { count++; write(`Step ${count}: ${safe(item?.type ?? 'operation')} finished.\n`); }
-      if (row.type === 'result' && typeof row.result === 'string') write(`${safe(row.result)}\n`);
+      if (row.type === 'item.completed' && item?.type === 'agent_message' && typeof item.text === 'string') emit(`${prose(item.text)}\n\n`);
+      else if (row.type === 'item.completed') noteActivity(row);
+      for (const value of claudeText(row)) emit(`${prose(value)}\n\n`);
+      if (row.type === 'result' && typeof row.result === 'string') emit(`${prose(row.result)}\n`);
+      if (row.type === 'turn.failed' || row.type === 'error' || (row.type === 'result' && (row.is_error === true || row.subtype === 'error'))) emit('Worker reported a failure. Inspect the final result before accepting work.\n');
       if (row.type === 'turn.completed' || row.type === 'result') {
         const usage = row.usage;
         if (Number.isSafeInteger(usage?.input_tokens) && usage.input_tokens >= 0 && Number.isSafeInteger(usage.output_tokens) && usage.output_tokens >= 0) {
           const cost = typeof row.total_cost_usd === 'number' && Number.isFinite(row.total_cost_usd) && row.total_cost_usd >= 0 ? `$${row.total_cost_usd}` : 'unavailable';
-          write(`Reported input: ${usage.input_tokens}; output: ${usage.output_tokens}. Cost: ${cost}.\n`);
-          if (Number.isSafeInteger(usage.cached_input_tokens) && usage.cached_input_tokens >= 0 && usage.cached_input_tokens <= usage.input_tokens) write(`Cached input: ${usage.cached_input_tokens}. Input is cumulative, not a full-price charge.\n`);
+          emit(`Reported input: ${usage.input_tokens}; output: ${usage.output_tokens}. Cost: ${cost}.\n`);
+          if (Number.isSafeInteger(usage.cached_input_tokens) && usage.cached_input_tokens >= 0 && usage.cached_input_tokens <= usage.input_tokens) emit(`Cached input: ${usage.cached_input_tokens}. Input is cumulative, not a full-price charge.\n`);
         }
-        write('Response received. Independent review is still required.\n');
+        emit('Response received. Independent review is still required.\n');
       }
     }
   };
@@ -110,7 +169,10 @@ export async function runLiveWorker(project, runId, expectedHash) {
   const render = createLiveRenderer(text => process.stdout.write(text));
   const evidenceStream = createNativeEvidenceStream(spec.harness);
   const startup = createStartupDiagnosticClassifier(spec.harness, diagnostic => process.stdout.write(`${diagnostic.code}: ${diagnostic.message}\n`));
-  process.stdout.write(`${safe(spec.name)}\nRole: ${safe(spec.role)} | Requested model: ${safe(spec.model)}\n\n`);
+  const goal = typeof spec.goal === 'string' && spec.goal.trim()
+    ? `\nGoal: ${safeInline(spec.goal, 480)}`
+    : '\nGoal: unavailable in this earlier launch descriptor.';
+  process.stdout.write(`Worker: ${safeInline(spec.name)}\nRole: ${safeInline(spec.role)} | Requested model: ${safeInline(spec.model)}${goal}\n\n`);
   let bytes = 0, failed = false, truncated = false, renderFailed = false, exitCode = 0;
   const child = spawn(spec.binary, spec.args, { cwd: project, stdio: ['ignore', 'pipe', 'pipe'] });
   const stop = () => child.kill();
