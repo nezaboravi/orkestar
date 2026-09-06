@@ -1,7 +1,7 @@
 ---
 description: Implements scoped everyday code changes and proves them with focused verification.
 mode: subagent
-variant: max
+variant: high
 steps: 27
 color: success
 permission:

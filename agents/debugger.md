@@ -1,7 +1,7 @@
 ---
 description: Investigates reproducible bugs, logs, failing tests, and root causes before making a focused fix.
 mode: subagent
-variant: max
+variant: high
 steps: 22
 color: warning
 permission:

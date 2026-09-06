@@ -47,6 +47,23 @@ permission:
   });
 });
 
+test('Claude conductor receives only exact worker MCP permissions without edit or shell escalation', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-worker-tools-'));
+  const plan = buildPlan({ selectedTools: ['claude'], home: root, project: root, projectOnly: true,
+    resolvedModelsByTool: { claude: {} }, resolvedFactoryModelsByTool: { claude: {} } });
+  const conductor = plan.operations.find(item => item.target.endsWith('/.claude/agents/lenka.md')).content.toString();
+  const frontmatter = conductor.split('---')[1];
+  for (const tool of ['worker_contract', 'worker_dispatch', 'worker_dispatch_wave', 'worker_status', 'worker_result', 'worker_report',
+    'coord_todo_list', 'coord_todo_create', 'coord_todo_update', 'coord_scratchpad_list',
+    'coord_scratchpad_read', 'coord_scratchpad_create', 'coord_scratchpad_append']) {
+    assert.match(frontmatter, new RegExp(`  - mcp__orkestar_worker__${tool}\\n`));
+  }
+  assert.doesNotMatch(frontmatter, /  - (Bash|Edit|Write)/);
+  assert.doesNotMatch(frontmatter, /mcp__orkestar_worker__\*/);
+  const reviewer = plan.operations.find(item => item.target.endsWith('/.claude/agents/reviewer.md')).content.toString().split('---')[1];
+  assert.doesNotMatch(reviewer, /mcp__orkestar_worker__/);
+});
+
 test('Codex conversion keeps auditors read-only and builders writable', () => {
   const auditor = parseAgent(path.join(repoRoot, 'teams', 'dev', 'dev-auditor.md'));
   const builder = parseAgent(path.join(repoRoot, 'teams', 'dev', 'dev-builder.md'));
@@ -117,7 +134,18 @@ test('Lenka leads a flat audited workflow without generic implementation fallbac
     assert.notEqual(direct[role], 'allow', `Lenka must not use ${role} as a workflow shortcut`);
   }
   assert.match(lenka.body, /Lenka is\s+the team lead and dispatches each phase directly/);
-  assert.match(lenka.body, /Solo's `spawn_agent`/);
+  const nativeSolo = lenka.body.split('**Codex and Claude Code inside Solo:**')[1]?.split('**OpenCode inside Solo:**')[0];
+  const openCodeSolo = lenka.body.split('**OpenCode inside Solo:**')[1]?.split('- Treat Taskavel')[0];
+  assert.ok(nativeSolo, 'Codex and Claude require an explicit Solo routing boundary');
+  assert.match(nativeSolo, /`orkestar_worker` MCP only/);
+  for (const tool of ['worker_contract', 'worker_dispatch', 'worker_dispatch_wave', 'worker_status', 'worker_result', 'worker_report']) {
+    assert.ok(nativeSolo.includes(`\`${tool}\``), `Native Solo workflow requires ${tool}`);
+  }
+  assert.match(nativeSolo, /Never substitute\s+native hidden children, raw Solo spawning/);
+  assert.ok(openCodeSolo, 'OpenCode has a separate verified Solo adapter');
+  assert.match(openCodeSolo, /dispatch only with `orchestra-solo-dispatch`/);
+  assert.match(openCodeSolo, /`orchestra-solo-wait`/);
+  assert.doesNotMatch(lenka.body, /Solo's `spawn_agent`/);
 });
 
 test('every active source permission envelope denies external directories', () => {
@@ -146,6 +174,9 @@ test('every code change requires independent security and performance review', (
   assert.match(lenka.body, /solo_timer_fire_when_idle_all/);
   assert.match(lenka.body, /End your turn immediately after arming the timer/);
   assert.match(lenka.body, /A timeout or idle state is not success/);
+  assert.match(lenka.body, /Do not assume the server default includes a Done/);
+  assert.match(lenka.body, /no final text is incomplete evidence/);
+  assert.doesNotMatch(lenka.body, /no final text is a harness\/provider failure/);
 });
 
 test('OpenCode workers can run as Solo sibling sessions without losing their envelope', () => {
@@ -579,7 +610,8 @@ test('runtime profile route matches the installed role override', () => {
   const manifest = JSON.parse(runtimeManifest('opencode', { mid: 'provider/default' }, { 'dev-planner': 'provider/planning' }));
   assert.equal(manifest.profiles['project-plan'].model, 'provider/planning');
   const lenka = parseAgent(path.join(repoRoot, 'agents/lenka.md'));
-  assert.match(codexAgent(lenka), /use native Codex subagents/);
+  assert.match(codexAgent(lenka), /inside Solo use the installed orkestar_worker MCP bridge/);
+  assert.match(codexAgent(lenka), /Outside Solo use native Codex subagents/);
 });
 
 test('Codex runtime and generated roles pin reasoning effort by responsibility', () => {
@@ -615,6 +647,18 @@ test('Codex runtime and generated roles pin reasoning effort by responsibility',
   assert.equal(manifest.primary.reasoningEffort, 'medium');
   assert.equal(manifest.profiles['project-read'].reasoningEffort, 'low');
   assert.equal(manifest.profiles['project-write'].reasoningEffort, 'medium');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(repoRoot, 'orchestra.json'), 'utf8')).modelPolicy.maximumReasoningEffort, 'high');
+});
+
+test('source agents and Lenka policy prohibit reasoning above high', () => {
+  for (const name of fs.readdirSync(path.join(repoRoot, 'agents')).filter((entry) => entry.endsWith('.md'))) {
+    const source = fs.readFileSync(path.join(repoRoot, 'agents', name), 'utf8');
+    assert.doesNotMatch(source, /^variant:\s*(?:xhigh|max|ultra)\s*$/m, name);
+  }
+  const lenka = fs.readFileSync(path.join(repoRoot, 'agents', 'lenka.md'), 'utf8');
+  assert.match(lenka, /independent outcome with `worker_dispatch_wave` before waiting/);
+  assert.match(lenka, /default worker-session budget is 12/);
+  assert.match(lenka, /Do not spawn a separate Taskavel worker for each/);
 });
 
 test('project plan installs one ignored runtime manifest per selected harness', () => {
@@ -653,6 +697,10 @@ test('OpenCode installation includes the exact run audit tool', () => {
   const operation = plan.operations.find((item) => item.target === path.join(project, '.opencode', 'tools', 'orchestra-report.ts'));
   const statePlugin = plan.operations.find((item) => item.target === path.join(project, '.opencode', 'plugins', 'orchestra-state.ts'));
   assert.ok(operation);
+  assert.match(operation.content.toString(), /\.\.\/\.\.\/\.agent-orchestra\/runtime\/report-tracker-gate\.mjs/);
+  for (const name of ['report-tracker-gate.mjs', 'tracker-reconciliation.mjs']) {
+    assert.ok(plan.operations.some(item => item.target === path.join(project, '.agent-orchestra', 'runtime', name)));
+  }
   assert.match(operation.content.toString(), /Exact OpenCode session database values; no estimates/);
   assert.match(operation.content.toString(), /context\.directory/);
   assert.match(operation.content.toString(), /DONE development run requires a recorded \$\{role\} session/);
@@ -671,6 +719,19 @@ test('Taskavel remains the durable record while Solo is an execution mirror', ()
   assert.equal(config.coordination.crossHarnessTaskavelViaSolo, true);
   assert.equal(config.coordination.solo.scratchpads, 'session-working-memory');
   assert.equal(config.coordination.solo.todos, 'taskavel-linked-execution-mirror');
+});
+
+test('global OpenCode report imports managed tracker helpers outside the auto-loaded tools folder', () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'orchestra-global-report-'));
+  const plan = buildPlan({ selectedTools: ['opencode'], home, projectOnly: false,
+    resolvedModelsByTool: { opencode: {} }, resolvedFactoryModelsByTool: { opencode: {} } });
+  const reportFile = path.join(home, '.config/opencode/tools/orchestra-report.ts');
+  const report = plan.operations.find(item => item.target === reportFile);
+  const specifier = report.content.toString().match(/from ["']([^"']*report-tracker-gate\.mjs)["']/)[1];
+  const gatePath = path.resolve(path.dirname(reportFile), specifier);
+  assert.equal(gatePath, path.join(home, '.agent-orchestra/runtime/report-tracker-gate.mjs'));
+  assert.ok(plan.operations.some(item => item.target === gatePath));
+  assert.ok(plan.operations.some(item => item.target === path.join(path.dirname(gatePath), 'tracker-reconciliation.mjs')));
 });
 
 test('doctor does not call a CLI-only clean room ready without models', () => {

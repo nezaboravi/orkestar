@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
+import { liveWorkerTool } from './native-worker-live.mjs';
 
 function bundledSoloCandidates(platform = process.platform, home = os.homedir(), environment = process.env) {
   const candidates = [];
@@ -228,14 +229,20 @@ function soloProcessName(harness) {
   return `Lenka — ${labels[harness] || harness} · Solo team`;
 }
 
-function matchesSoloRuntime(processEntry, runtime, name = soloProcessName(runtime.harness)) {
+function matchesSoloRuntime(processEntry, runtime, name = soloProcessName(runtime.harness), tool = null, projectId = null) {
   const command = String(processEntry.command || '');
   const model = String(runtime.manifest.primary.model || '');
+  const executable = tool ? String(tool.command || '').trim() : String(runtime.binary || '');
+  if (!executable || /[\r\n\x00]/.test(executable) || (tool && (tool.enabled === false
+    || !(tool.toolType === runtime.harness || runtime.harness === 'cursor' && tool.toolType === 'generic')))) return false;
+  const prefix = command.startsWith(`${executable} `) || command.startsWith(`${JSON.stringify(executable)} `)
+    || command.startsWith(`'${executable.replaceAll("'", "'\\''")}' `);
+  const modelPattern = new RegExp(`(?:^|\\s)--model(?:=|\\s+)(?:${escapeRegularExpression(model)}|"${escapeRegularExpression(model)}"|'${escapeRegularExpression(model)}')(?=\\s|$)`);
   const legacyName = soloProcessName(runtime.harness).replace(' · Solo team', '');
   return processEntry.kind === 'agent'
     && [name, legacyName, 'Lenka — Orkestar'].includes(processEntry.name)
-    && command.includes(runtime.binary)
-    && (!model || command.includes(`--model ${model}`));
+    && (projectId === null || processEntry.projectId === projectId)
+    && prefix && !!model && [...command.matchAll(/(?:^|\s)--model(?:=|\s+)/g)].length === 1 && modelPattern.test(command);
 }
 
 function renameSoloProcess(binary, processEntry, name, projectPath, invoke) {
@@ -378,8 +385,20 @@ function launchInSolo(runtime, options, dependencies = {}) {
   } catch {
     // Older Solo builds may not expose process inventory; spawning still works.
   }
+  const agentTools = decodeSoloJson(invoke(binary, ['agents', 'list'], projectPath), 'Solo agent tool list').agentTools || [];
+  if (['codex', 'claude'].includes(runtime.harness)) liveWorkerTool(agentTools);
+  const tool = selectAgentTool(agentTools, runtime.harness);
+  if (!tool) throw new Error(`Solo has no enabled ${runtime.harness} agent tool on this machine`);
+  const launchArgs = dependencies.launcherArgs(runtime.harness, runtime.manifest.primary.model,
+    projectPath, runtime.manifest.primary.reasoningEffort || null, { workspace: 'solo' });
+  const conductorMarker = launchArgs.join(' ').match(/ORKESTAR_SOLO_CONDUCTOR_[a-f0-9]{64}/)?.[0];
+  const staleActive = conductorMarker && existingProcesses.find(entry =>
+    matchesSoloRuntime(entry, runtime, processName, tool, project.id)
+    && ['running', 'starting'].includes(entry.status) && !String(entry.command).includes(conductorMarker));
+  if (staleActive) throw new Error('An older Lenka session is still running in Solo. Stop that session before launching the updated conductor; existing work was preserved.');
   const matchingProcesses = existingProcesses
-    .filter((entry) => matchesSoloRuntime(entry, runtime, processName))
+    .filter((entry) => matchesSoloRuntime(entry, runtime, processName, tool, project.id))
+    .filter(entry => !conductorMarker || String(entry.command).includes(conductorMarker))
     .sort((left, right) => Number(right.id) - Number(left.id));
   const active = matchingProcesses.find((entry) => ['running', 'starting'].includes(entry.status));
   if (active) {
@@ -400,15 +419,11 @@ function launchInSolo(runtime, options, dependencies = {}) {
     return { binary, project, tool: null, process: { ...named, ...processEntry }, startup, reused: true, mcp };
   }
 
-  const agentTools = decodeSoloJson(invoke(binary, ['agents', 'list'], projectPath), 'Solo agent tool list').agentTools || [];
-  const tool = selectAgentTool(agentTools, runtime.harness);
-  if (!tool) throw new Error(`Solo has no enabled ${runtime.harness} agent tool on this machine`);
-
   const args = [
     'processes', 'spawn', '--project-id', String(project.id), '--kind', 'agent',
     '--agent-tool-id', String(tool.id), '--name', processName,
   ];
-  for (const arg of dependencies.launcherArgs(runtime.harness, runtime.manifest.primary.model, projectPath, runtime.manifest.primary.reasoningEffort || null)) {
+  for (const arg of launchArgs) {
     args.push('--arg', arg);
   }
   const spawned = decodeSoloJson(invoke(binary, args, projectPath), 'Solo agent launch');

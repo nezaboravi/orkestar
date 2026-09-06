@@ -65,16 +65,19 @@ const cell = value => String(value).slice(0, 4096).replace(/[\u0000-\u001f\u007f
 
 /** Metadata-only scratchpad, not a transcript or a fabricated acceptance report. */
 export function renderNativeAudit(audit) {
-  const lines = ['# Orkestar native session evidence', '', 'Status: PARTIAL',
-    'Independent acceptance: pending. Native session activity is not independent acceptance proof.', '',
-    `Harness: ${cell(audit.harness)}`, `Project: ${cell(audit.project)}`,
-    `Root session: ${cell(audit.sessionId)}`, '',
-    '| Agent | Model | Session | Parent | Cumulative tokens | Cost |',
-    '| --- | --- | --- | --- | ---: | --- |'];
-  for (const agent of audit.agents) lines.push(`| ${cell(agent.agent)} | ${cell(agent.model)} | ${cell(agent.sessionId)} | ${cell(agent.parentSessionId ?? 'root')} | ${agent.tokens?.total ?? 'unavailable'} | unavailable |`);
-  lines.push('', `Total cumulative tokens: ${audit.totals.tokens ?? 'unavailable'}`,
-    'Total cost: unavailable', '',
-    'Token totals include cached input and reasoning output; do not add those categories again.',
-    'This evidence does not approve acceptance or complete Taskavel tasks.');
+  const number = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString('en-US') : 'unavailable';
+  const state = value => value === 'running' ? 'Working' : value === 'idle' ? 'Response returned; review pending' : 'Not reported';
+  const lines = ['# Team activity', '', 'Independent acceptance: pending.',
+    'This is activity evidence, not a completed-task checklist. Follow the outcome checklist and Taskavel for delivery status.', '',
+    '| Agent role | Model | Activity | Tokens processed |',
+    '| --- | --- | --- | ---: |'];
+  for (const agent of audit.agents) lines.push(`| ${cell(agent.parentSessionId ? agent.agent : 'Conductor')} | ${cell(agent.model)} | ${state(agent.state)} | ${number(agent.tokens?.total)} |`);
+  lines.push('', `Total cumulative tokens: ${number(audit.totals.tokens)}`,
+    'Cost: unavailable — the client did not report monetary billing.', '',
+    'Tokens processed include repeated and cached input, not just newly written text. Cached input and reasoning are already included; do not add them again.',
+    'A returned response still needs verification. This evidence does not approve acceptance or complete Taskavel tasks.',
+    '', '## Technical details', '', `Client: ${cell(audit.harness)}`, `Project: ${cell(audit.project)}`,
+    `Root session: ${cell(audit.sessionId)}`);
+  for (const agent of audit.agents) lines.push(`- ${cell(agent.agent)}: ${cell(agent.sessionId)}; parent: ${cell(agent.parentSessionId ?? 'root')}`);
   return lines.join('\n');
 }

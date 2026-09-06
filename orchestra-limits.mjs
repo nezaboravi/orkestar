@@ -1,0 +1,2 @@
+export const MAX_WORKER_SESSIONS = 12;
+export const MAX_MEETUP_PLANNED_SESSIONS = 9;

@@ -57,7 +57,10 @@ with the smallest correct diff at each step.
 4. Implement one step at a time. Keep changes minimal and focused.
 5. Run the minimal verification each step needs (e.g. the specific test or
    command that proves this step), fix what breaks.
-6. At the end, report: what you changed (files), what you verified, what is
+6. Finish the project's required affected-file formatting before handing off
+   the final diff for independent review. Do not leave cosmetic writes for
+   after audit. Never run a production build over an active development server.
+7. At the end, report: what you changed (files), what you verified, what is
    left for the tester/auditor.
 
 ## Rules

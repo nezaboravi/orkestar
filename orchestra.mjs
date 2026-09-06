@@ -212,6 +212,14 @@ function claudeAgent(agent, selectedModel = null) {
       else if (permission.bash) allowed.add('Bash');
     }
     if (permission && permission.task !== 'deny') allowed.add('Task');
+    if (agent.name === 'lenka') {
+      for (const name of ['worker_contract', 'worker_dispatch', 'worker_dispatch_wave', 'worker_status', 'worker_result', 'worker_report',
+        'coord_todo_list', 'coord_todo_create', 'coord_todo_update', 'coord_scratchpad_list',
+        'coord_scratchpad_read', 'coord_scratchpad_create', 'coord_scratchpad_append']) {
+        const tool = `mcp__orkestar_worker__${name}`;
+        if (permission?.[tool] === 'allow') allowed.add(tool);
+      }
+    }
   }
   const model = selectedModel ? [`model: ${selectedModel}`] : [];
   return ['---', `name: ${agent.name}`, `description: ${agent.frontmatter.description || ''}`, ...model, 'tools:', ...[...allowed].map((tool) => `  - ${tool}`), '---', '', agent.body, ''].join('\n');
@@ -228,7 +236,7 @@ function codexAgent(agent, selectedModel = null, reasoningEffort = null) {
   if (selectedModel) lines.push(`model = "${selectedModel}"`);
   if (reasoningEffort) lines.push(`model_reasoning_effort = "${reasoningEffort}"`);
   const codexRouting = agent.name === 'lenka'
-    ? 'Codex routing: use native Codex subagents with the installed named role definitions. Solo hosts this conductor and coordination artifacts; do not launch a bare Codex CLI as a planner, designer, reviewer or auditor. A process name is not a role. Do not claim that native Codex subagents appear as separate Solo processes. Cross-harness delegation requires a separately verified adapter and is not automatic.\n\n'
+    ? 'Codex routing: inside Solo use the installed orkestar_worker MCP bridge for visible role-bound workers, not native hidden children or raw process spawning. Create the contract, dispatch, collect results and finalize with worker_report. Outside Solo use native Codex subagents with installed named role definitions. A process name alone is not a role. Cross-harness delegation requires a separately verified adapter.\n\n'
     : '';
   lines.push('', 'developer_instructions = """', codexRouting + agent.body, '"""', '');
   return lines.join('\n');
@@ -871,16 +879,26 @@ function reasoningPolicy(tool) {
   return orchestraConfig.modelPolicy.adapters?.[tool]?.reasoningEffort || {};
 }
 
+const allowedReasoningEfforts = new Set(['low', 'medium', 'high']);
+
+function boundedReasoningEffort(value) {
+  if (!value) return null;
+  if (!allowedReasoningEfforts.has(value)) {
+    throw new Error(`Reasoning effort ${JSON.stringify(value)} exceeds Orkestar's high ceiling`);
+  }
+  return value;
+}
+
 function selectedAgentReasoning(agentName, tool) {
   if (tool !== 'codex') return null;
   const policy = reasoningPolicy(tool);
-  if (policy.roles?.[agentName]) return policy.roles[agentName];
+  if (policy.roles?.[agentName]) return boundedReasoningEffort(policy.roles[agentName]);
   const profile = Object.values(orchestraConfig.agentFactory?.profiles || {}).find((candidate) => candidate.template === agentName);
-  return profile ? policy.classes?.[profile.modelClass] || null : null;
+  return profile ? boundedReasoningEffort(policy.classes?.[profile.modelClass]) : null;
 }
 
 function reasoningForClass(tool, modelClass) {
-  return tool === 'codex' ? reasoningPolicy(tool).classes?.[modelClass] || null : null;
+  return tool === 'codex' ? boundedReasoningEffort(reasoningPolicy(tool).classes?.[modelClass]) : null;
 }
 
 function runtimeManifest(tool, resolvedFactoryModels = {}, resolvedRoles = {}) {
@@ -947,10 +965,16 @@ function buildPlan(options) {
         kind: `${tool} global runtime manifest`,
       });
       if (tool === 'opencode') {
+        for (const name of ['report-tracker-gate.mjs', 'tracker-reconciliation.mjs']) {
+          operations.push({ target: path.join(options.home, '.agent-orchestra', 'runtime', name),
+            content: fs.readFileSync(path.join(repoRoot, name)), kind: 'tracker report support' });
+        }
         for (const name of fs.readdirSync(sourceOpenCodeTools).sort()) {
           operations.push({
             target: path.join(options.home, '.config', 'opencode', 'tools', name),
-            content: fs.readFileSync(path.join(sourceOpenCodeTools, name)),
+            content: name === 'orchestra-report.ts'
+              ? fs.readFileSync(path.join(sourceOpenCodeTools, name), 'utf8').replace('../../../report-tracker-gate.mjs', '../../../.agent-orchestra/runtime/report-tracker-gate.mjs')
+              : fs.readFileSync(path.join(sourceOpenCodeTools, name)),
             kind: 'opencode orchestra tool',
           });
         }
@@ -977,10 +1001,16 @@ function buildPlan(options) {
         kind: `${tool} runtime manifest`,
       });
       if (tool === 'opencode') {
+        for (const name of ['report-tracker-gate.mjs', 'tracker-reconciliation.mjs']) {
+          operations.push({ target: path.join(options.project, '.agent-orchestra', 'runtime', name),
+            content: fs.readFileSync(path.join(repoRoot, name)), kind: 'tracker report support' });
+        }
         for (const name of fs.readdirSync(sourceOpenCodeTools).sort()) {
           operations.push({
             target: path.join(options.project, '.opencode', 'tools', name),
-            content: fs.readFileSync(path.join(sourceOpenCodeTools, name)),
+            content: name === 'orchestra-report.ts'
+              ? fs.readFileSync(path.join(sourceOpenCodeTools, name), 'utf8').replace('../../../report-tracker-gate.mjs', '../../.agent-orchestra/runtime/report-tracker-gate.mjs')
+              : fs.readFileSync(path.join(sourceOpenCodeTools, name)),
             kind: 'opencode project orchestra tool',
           });
         }
@@ -995,6 +1025,13 @@ function buildPlan(options) {
     }
   }
   if (options.project) {
+    if (options.selectedTools.some(tool => ['codex', 'claude'].includes(tool))) {
+      operations.push({
+        target: path.join(options.project, '.agent-orchestra', 'protocol', 'native-report.md'),
+        content: fs.readFileSync(path.join(repoRoot, 'docs', 'NATIVE-REPORT.md')),
+        kind: 'native worker report protocol',
+      });
+    }
     for (const name of ['task-contract.template.json']) {
       operations.push({
         target: path.join(options.project, '.agent-orchestra', 'protocol', name),

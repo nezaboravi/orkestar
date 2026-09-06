@@ -2,8 +2,9 @@
 
 `lenka up solo codex` and `lenka up solo claude` install additive project-local
 observation hooks before opening Solo. Once the native client loads and trusts
-them, real subagent activity is mirrored into a per-run scratchpad and activity
-todos. Native children are not separate Solo worker processes.
+them, real subagent activity is mirrored into a per-run scratchpad. Native
+children are not separate Solo worker processes. Outcome plan steps can be
+mirrored as todos; agent telemetry no longer creates todos of its own.
 
 Every `lenka up`, including `--no-launch`, refreshes project-local role files
 from the already verified model routes. It preserves existing `AGENTS.md`,
@@ -63,7 +64,8 @@ interactive terminal with print mode.
 3. Collect bounded, serialized metadata snapshots from explicit transcript
    paths. Handle concurrent children, incomplete writes, resume, interruption,
    schema changes and application restarts without double counting.
-4. Real work is mirrored into Solo todos and one run scratchpad with durable identity,
+4. Outcome plan steps are mirrored into Solo todos; agent activity goes into
+   one readable run scratchpad with durable identity,
    revision checks and read-back verification. Taskavel remains authoritative;
    never invent Taskavel links or silently complete its tasks.
 5. Show native children as native session evidence. Do not spawn empty Solo
@@ -74,7 +76,9 @@ interactive terminal with print mode.
 7. Native task-list tools are client/version dependent. The installed Codex and
    Claude smoke sessions did not expose a usable native plan list. Lenka must
    use Solo MCP for the outcome plan and acceptance checklist in that case.
-   Native agent activity todos are not a substitute for the outcome plan.
+   Older agent activity todos are preserved, not silently deleted. New events
+   do not create more of them. Role, activity, model and formatted token totals
+   lead the scratchpad; session identifiers are in technical details.
 
 ## Observed compatibility
 
@@ -103,3 +107,12 @@ established. Do not solve that by deleting arbitrary repeated text.
 
 Documentation establishes the supported contract, not the state of a user's
 installation. Local observation must still prove the installed client behavior.
+# Recreated Solo projects
+
+If Solo assigns a new ID to the same exact project directory, the launcher can
+repair an unused installation automatically. It first verifies that the old
+project is explicitly missing, the new ID resolves to the same directory, and
+there are no dispatches, runs, or runtime ownership records. The previous
+binding is preserved under `.agent-orchestra/backups/`. Existing history,
+ambiguous identity, a changed CLI, or an unavailable Solo service still require
+review; the launcher never silently transfers old task ownership.

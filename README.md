@@ -226,8 +226,18 @@ left untouched instead of being overwritten.
 Codex launches are deterministic in both dimensions: the verified model and
 the reasoning effort are pinned by the orchestra. Coordination, planning, and
 normal implementation use `medium`; economy workers use `low`; final audit
-uses `high`. A previous Codex session or machine-wide default cannot silently
-turn an ordinary run into a high-reasoning run.
+uses `high`. `high` is the absolute ceiling: Orkestar rejects `xhigh`, `max`,
+`ultra`, and unknown reasoning settings before launch. A previous Codex session
+or machine-wide default cannot silently turn an ordinary run into a
+high-reasoning run.
+
+Lenka dispatches from a dependency graph in waves: every independent outcome
+that is ready starts before she waits. A normal run plans at most 12 worker
+sessions as an absolute ceiling; a timeboxed meetup run plans at most 9.
+Taskavel changes due at the same phase boundary are batched into one assignment,
+and bookkeeping never gets its own worker. The three-session meetup reserve may
+be used only for a verified defect's narrow repair and affected re-check, and
+the final report must say so.
 
 Autonomy is translated by the selected adapter rather than hard-coded as a
 Codex policy: Codex uses workspace-write with automatic review, Claude Code

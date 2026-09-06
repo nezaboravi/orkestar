@@ -124,6 +124,7 @@
     }
   },
   "modelPolicy": {
+    "maximumReasoningEffort": "high",
     "inventoryAtInstall": true,
     "runtimeManifestBeforeDispatch": true,
     "humanConfirmationBeforeFirstDispatch": false,

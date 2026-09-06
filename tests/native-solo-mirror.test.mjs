@@ -3,8 +3,56 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { bindSoloObserver, mirrorNativeAudit } from '../native-solo-mirror.mjs';
 import { assembleNativeAudit } from '../native-audit.mjs';
+
+function installPresentationFixture(project, harness) {
+  const target = path.join(project, '.agent-orchestra/worker'); fs.mkdirSync(target);
+  const files = {};
+  for (const name of ['native-solo-worker-mcp.mjs', 'native-worker-summary.mjs']) {
+    fs.writeFileSync(path.join(target, name), 'fixture');
+    files[name] = createHash('sha256').update('fixture').digest('hex');
+  }
+  const server = { command: process.execPath, args: [path.join(target, 'native-solo-worker-mcp.mjs'), '--project', project, '--harness', harness] };
+  const settings = {};
+  if (harness === 'codex') {
+    fs.mkdirSync(path.join(project, '.codex'));
+    settings.codex = `# BEGIN ORKESTAR WORKER MCP\n[mcp_servers.orkestar_worker]\ncommand = ${JSON.stringify(server.command)}\nargs = ${JSON.stringify(server.args)}\n# END ORKESTAR WORKER MCP\n`;
+    fs.writeFileSync(path.join(project, '.codex/config.toml'), settings.codex);
+  } else {
+    settings.claude = JSON.stringify(server);
+    fs.writeFileSync(path.join(project, '.mcp.json'), JSON.stringify({ mcpServers: { orkestar_worker: server } }));
+  }
+  fs.writeFileSync(path.join(target, 'manifest.json'), JSON.stringify({ schemaVersion: 1, files, settings }));
+}
+
+for (const harness of ['codex', 'claude']) test(`${harness} managed bridge suppresses duplicate native activity UI and preserves historical pads`, async t => {
+  const f = fixture(t);
+  bindSoloObserver({ ...f.binding, harness });
+  f.binding.harnesses = ['codex', 'claude']; f.audit.harness = harness;
+  installPresentationFixture(f.project, harness);
+  const before = JSON.stringify(f.state);
+  const result = await mirrorNativeAudit(f.audit, f);
+  assert.equal(result.skipped, true); assert.match(result.reason, /Managed visible workers/);
+  assert.equal(JSON.stringify(f.state), before, 'No external calls or historical changes');
+});
+
+test('a foreign or changed bridge configuration does not suppress native observation', async t => {
+  const f = fixture(t);
+  installPresentationFixture(f.project, 'codex');
+  fs.writeFileSync(path.join(f.project, '.codex/config.toml'), '# config replaced by the user\n');
+  const result = await mirrorNativeAudit(f.audit, f);
+  assert.equal(result.mirrored, true);
+  assert.equal(f.state.scratchpads.length, 2);
+});
+
+test('a modified or symlinked bridge cannot claim presentation ownership', async t => {
+  const f = fixture(t);
+  installPresentationFixture(f.project, 'codex');
+  fs.writeFileSync(path.join(f.project, '.agent-orchestra/worker/native-worker-summary.mjs'), 'changed');
+  assert.equal((await mirrorNativeAudit(f.audit, f)).mirrored, true);
+});
 
 function fixture(t) {
   const project = fs.realpathSync(fs.mkdtempSync(path.join(tmpdir(), 'solo-mirror-')));
@@ -76,7 +124,7 @@ test('native Solo mirror is idempotent and preserves unrelated todos and scratch
   const count = mutations().length;
   await mirrorNativeAudit(f.audit, f);
   assert.equal(mutations().length, count);
-  assert.equal(f.state.todos.length, 3);
+  assert.equal(f.state.todos.length, 2);
   assert.equal(f.state.scratchpads.length, 2);
   assert.deepEqual(f.state.todos[0], { id: 99, title: 'User work', body: 'Unrelated', status: 'open', tags: ['user'] });
   assert.equal(f.state.scratchpads[0].content, 'Unrelated');
@@ -84,15 +132,87 @@ test('native Solo mirror is idempotent and preserves unrelated todos and scratch
   assert.equal(f.state.calls.some(call => ['processes', 'agents'].includes(call.args[0])), false, 'No fake Solo workers');
 });
 
+test('deleted Solo project can rebind an unused installation with a preserved backup', t => {
+  const f = fixture(t);
+  const file = path.join(f.project, '.agent-orchestra/runtime/solo-observer.json');
+  const before = fs.readFileSync(file, 'utf8');
+  let calls = 0;
+  const invoke = (binary, args, options) => {
+    calls++; assert.equal(binary, f.binding.soloBinary); assert.equal(options.timeout, 10000);
+    assert.deepEqual(args.slice(0, 2), ['projects', 'get']);
+    return args[2] === '26'
+      ? { status: 65, stdout: '', stderr: JSON.stringify({ ok: false, error: { code: 'not_found' } }) }
+      : { status: 0, stdout: JSON.stringify({ ok: true, data: { id: 34, path: f.project } }), stderr: '' };
+  };
+  bindSoloObserver({ ...f.binding, projectId: 34 }, { invoke });
+  assert.equal(calls, 2);
+  assert.equal(JSON.parse(fs.readFileSync(file)).projectId, 34);
+  const backups = fs.readdirSync(path.join(f.project, '.agent-orchestra/backups'));
+  assert.equal(backups.length, 1);
+  assert.equal(fs.readFileSync(path.join(f.project, '.agent-orchestra/backups', backups[0]), 'utf8'), before);
+  bindSoloObserver({ ...f.binding, projectId: 34 }, { invoke });
+  assert.equal(calls, 2, 'retry is idempotent');
+});
+
+test('rebind preserves history and rejects ambiguous identity or unavailable Solo', t => {
+  const f = fixture(t), file = path.join(f.project, '.agent-orchestra/runtime/solo-observer.json');
+  const before = fs.readFileSync(file, 'utf8');
+  for (const value of [
+    { ok: true, data: { id: 26, path: f.project } },
+    { ok: false, error: { code: 'unavailable' } },
+  ]) {
+    assert.throws(() => bindSoloObserver({ ...f.binding, projectId: 34 }, { invoke: () => ({ status: 0, stdout: JSON.stringify(value) }) }), /identity changed/);
+  }
+  assert.throws(() => bindSoloObserver({ ...f.binding, projectId: 34 }, { invoke: (_b, args) => ({ status: 0,
+    stdout: JSON.stringify(args[2] === '26' ? { ok: false, error: { code: 'not_found' } } : { ok: true, data: { id: 34, path: '/foreign' } }) }) }), /identity changed/);
+  fs.mkdirSync(path.join(f.project, '.agent-orchestra/dispatch'));
+  assert.throws(() => bindSoloObserver({ ...f.binding, projectId: 34 }, { invoke: () => { throw Error('Must not call Solo'); } }), /identity changed/);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
+test('recreated project archives obsolete Solo ownership while retaining delivery and tracker history', t => {
+  const f = fixture(t), base = path.join(f.project, '.agent-orchestra');
+  fs.mkdirSync(path.join(base, 'runs'));
+  fs.writeFileSync(path.join(base, 'runs', 'history.json'), 'historical evidence');
+  const coordination = JSON.stringify({ schemaVersion: 1, project: f.project, projectId: 26, todos: [{ id: 57 }], scratchpads: [{ id: 91 }] });
+  fs.writeFileSync(path.join(base, 'runtime/solo-coordination.json'), coordination);
+  fs.writeFileSync(path.join(base, 'runtime/taskavel-binding.json'), 'preserved tracker');
+  const invoke = (_binary, args) => args[2] === '26'
+    ? { status: 65, stderr: JSON.stringify({ ok: false, error: { code: 'not_found' } }) }
+    : { status: 0, stdout: JSON.stringify({ ok: true, data: { id: 34, path: f.project } }) };
+  bindSoloObserver({ ...f.binding, projectId: 34 }, { invoke });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(base, 'runtime/solo-observer.json'))).projectId, 34);
+  assert.equal(fs.existsSync(path.join(base, 'runtime/solo-coordination.json')), false);
+  const archived = fs.readdirSync(path.join(base, 'backups')).find(name => name.startsWith('solo-coordination-26-'));
+  assert.equal(fs.readFileSync(path.join(base, 'backups', archived), 'utf8'), coordination);
+  assert.equal(fs.readFileSync(path.join(base, 'runs/history.json'), 'utf8'), 'historical evidence');
+  assert.equal(fs.readFileSync(path.join(base, 'runtime/taskavel-binding.json'), 'utf8'), 'preserved tracker');
+  bindSoloObserver({ ...f.binding, projectId: 34 }, { invoke });
+  assert.equal(fs.readdirSync(path.join(base, 'backups')).length, 2);
+});
+
 test('concurrent mirrors serialize creates and revisions', async t => {
   const f = fixture(t);
   await Promise.all([mirrorNativeAudit(f.audit, f), mirrorNativeAudit(f.audit, f)]);
   assert.equal(f.state.scratchpads.length, 2);
-  assert.equal(f.state.todos.length, 3);
+  assert.equal(f.state.todos.length, 2);
   f.audit.agents[1].state = 'idle';
   await mirrorNativeAudit(f.audit, f);
   assert.equal(f.state.scratchpads[1].revision, 2);
-  assert.equal(f.state.todos.find(todo => todo.title === '[Native agent] reviewer').status, 'open', 'Idle is not acceptance');
+  assert.equal(f.state.todos.some(todo => todo.title.startsWith('[Native agent]')), false);
+  assert.match(f.state.scratchpads[1].content, /Response returned; review pending/);
+});
+
+test('legacy activity todos are preserved but new work todos use meaningful titles', async t => {
+  const f = fixture(t);
+  f.state.todos.push({ id: 500, title: '[Native agent] reviewer', body: 'Legacy record', status: 'open', tags: [] });
+  await mirrorNativeAudit(f.audit, f);
+  assert.equal(f.state.todos.filter(todo => todo.title.startsWith('[Native agent]')).length, 1);
+  assert.ok(f.state.todos.some(todo => todo.title === 'Verify behavior'));
+  const content = f.state.scratchpads[1].content;
+  assert.match(content, /## Technical details/);
+  assert.doesNotMatch(content.split('## Technical details')[0], /Root session:|parent:/);
+  assert.match(content, /repeated and cached input/);
 });
 
 test('invalid project, harness and undiscovered binary never call Solo', async t => {

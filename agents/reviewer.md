@@ -28,6 +28,13 @@ first, ordered by severity, with file and line references. Focus on correctness,
 regressions, security, data integrity, concurrency, performance where material,
 and missing verification.
 
+Keep review proportional to the supplied change. Read the final diff and the
+affected callers, reuse independently supplied test/browser evidence for that
+exact diff, and request only missing checks. Do not rerun the tester's full
+suite, inventory unrelated modules, or repeat unchanged checks without a
+specific evidence gap. This does not relax the mandatory security/performance
+gate: report unavailable evidence instead of assuming it passed.
+
 Every finding must contain direct evidence and one classification:
 `VERIFIED_DEFECT`, `SCOPED_RISK`, `OUT_OF_SCOPE_DISCOVERY`, or `SPECULATION`;
 also state whether it relates to `REQUIRED`, `LOCAL_DECISION`, or

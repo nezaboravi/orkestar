@@ -22,7 +22,24 @@ export function verifySoloBinary(binary) {
   return resolved;
 }
 
-export function bindSoloObserver({ project, projectId, soloBinary, harness }) {
+function canRebindUnusedProject(project, existing, projectId, binary, invoke) {
+  if (existing.soloBinary !== binary || !Number.isSafeInteger(existing.projectId) || existing.projectId < 1) return false;
+  const get = id => {
+    const result = invoke(binary, ['projects', 'get', String(id), '--json'],
+      { cwd: project, encoding: 'utf8', timeout: 10000, maxBuffer: 65536 });
+    const output = result.status === 0 ? result.stdout : (result.stdout || result.stderr);
+    if (result.error || typeof output !== 'string' || Buffer.byteLength(output) > 65536) throw new Error('Unverified Solo project');
+    return { status: result.status, value: JSON.parse(output) };
+  };
+  try {
+    const old = get(existing.projectId), next = get(projectId);
+    return old.value.ok === false && old.value.error?.code === 'not_found'
+      && next.status === 0 && next.value.ok === true && next.value.data?.id === projectId
+      && next.value.data.path === project;
+  } catch { return false; }
+}
+
+export function bindSoloObserver({ project, projectId, soloBinary, harness }, { invoke = spawnSync } = {}) {
   if (fs.realpathSync(project) !== project || !Number.isSafeInteger(projectId) || projectId < 1
     || !['codex', 'claude'].includes(harness)) throw new Error('Invalid Solo binding scope');
   const binary = verifySoloBinary(soloBinary);
@@ -34,7 +51,24 @@ export function bindSoloObserver({ project, projectId, soloBinary, harness }) {
   }
   const existing = readBinding(project);
   if (existing && (existing.schemaVersion !== 1 || existing.project !== project)) throw new Error('Preserved unmanaged Solo binding');
-  if (existing && (existing.projectId !== projectId || existing.soloBinary !== binary)) throw new Error('Solo binding identity changed; review before rebinding');
+  if (existing && (existing.projectId !== projectId || existing.soloBinary !== binary)) {
+    if (!canRebindUnusedProject(project, existing, projectId, binary, invoke)) throw new Error('Solo binding identity changed; review before rebinding');
+    const backup = path.join(project, '.agent-orchestra', 'backups');
+    try { fs.mkdirSync(backup, { mode: 0o700 }); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+    if (fs.lstatSync(backup).isSymbolicLink() || !fs.statSync(backup).isDirectory()) throw new Error('Unsafe Solo binding backup');
+    fs.writeFileSync(path.join(backup, `solo-observer-${existing.projectId}-${randomUUID()}.json`),
+      fs.readFileSync(file), { flag: 'wx', mode: 0o600 });
+    // Solo record IDs belong to the deleted project. Archive their ownership
+    // separately; historical worker receipts and Taskavel bindings stay intact.
+    const coordination = path.join(directory, 'solo-coordination.json');
+    try {
+      const stat = fs.lstatSync(coordination);
+      if (stat.isSymbolicLink() || !stat.isFile()) throw new Error('Unsafe Solo coordination binding');
+      const saved = JSON.parse(fs.readFileSync(coordination, 'utf8'));
+      if (saved.project !== project || saved.projectId !== existing.projectId) throw new Error('Unverified Solo coordination identity');
+      fs.renameSync(coordination, path.join(backup, `solo-coordination-${existing.projectId}-${randomUUID()}.json`));
+    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
   const harnesses = [...new Set([...(existing?.harnesses ?? [existing?.harness]).filter(value => ['codex', 'claude'].includes(value)), harness])];
   const output = JSON.stringify({ schemaVersion: 1, project, projectId, soloBinary: binary, harness, harnesses });
   const temporary = `${file}.${randomUUID()}.tmp`;
@@ -52,6 +86,40 @@ function readBinding(project) {
   }
   if (!fs.statSync(file).isFile() || fs.statSync(file).size > 16384) throw new Error('Invalid Solo observation binding');
   return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+// This is an explicit project presentation policy, not inferred session ancestry.
+// A managed visible-worker bridge owns its compact overview; native hooks still
+// save their full audit on disk before reaching this optional UI projection.
+function managedBridgeOwnsPresentation(project, harness) {
+  const read = relative => {
+    let current = project;
+    for (const part of relative.split('/')) {
+      current = path.join(current, part);
+      if (fs.lstatSync(current).isSymbolicLink()) throw new Error('Unsafe presentation scope');
+    }
+    const stat = fs.statSync(current);
+    if (!stat.isFile() || stat.size > 2 * 1024 * 1024) throw new Error('Invalid presentation file');
+    return fs.readFileSync(current, 'utf8');
+  };
+  try {
+    const manifest = JSON.parse(read('.agent-orchestra/worker/manifest.json'));
+    if (manifest.schemaVersion !== 1 || typeof manifest.settings?.[harness] !== 'string') return false;
+    for (const file of ['native-solo-worker-mcp.mjs', 'native-worker-summary.mjs']) {
+      const content = read(`.agent-orchestra/worker/${file}`);
+      if (manifest.files?.[file] !== createHash('sha256').update(content).digest('hex')) return false;
+    }
+    const server = path.join(project, '.agent-orchestra/worker/native-solo-worker-mcp.mjs');
+    if (harness === 'claude') {
+      const configured = JSON.parse(read('.mcp.json')).mcpServers?.orkestar_worker;
+      return JSON.stringify(configured) === manifest.settings.claude
+        && JSON.stringify(configured?.args) === JSON.stringify([server, '--project', project, '--harness', harness]);
+    }
+    const block = manifest.settings.codex;
+    return block.includes('[mcp_servers.orkestar_worker]\n')
+      && block.includes(`args = ${JSON.stringify([server, '--project', project, '--harness', harness])}\n`)
+      && read('.codex/config.toml').split(block).length === 2;
+  } catch { return false; }
 }
 
 /** Mirror native metadata, never transcripts, fake workers, or acceptance verdicts. */
@@ -85,6 +153,9 @@ async function mirror(audit, { project, invoke = spawnSync, binding } = {}) {
     throw new Error('Invalid Solo observation scope');
   }
   verifySoloBinary(binding.soloBinary);
+  if (managedBridgeOwnsPresentation(project, audit.harness)) {
+    return { skipped: true, reason: 'Managed visible workers own the Solo team overview; native audit preserved on disk' };
+  }
   let calls = 0;
   const deadline = Date.now() + 10000;
   const call = (args, input) => {
@@ -107,11 +178,8 @@ async function mirror(audit, { project, invoke = spawnSync, binding } = {}) {
     if (result.hasMore) throw new Error('Ambiguous Solo observation inventory');
     return result[kind] ?? [];
   };
-  const title = `Orkestar · ${audit.harness} · ${safe(audit.sessionId).slice(0, 8)}`;
-  const content = renderNativeAudit(audit).replace(/^# .*\n/, `# ${title}\n`)
-    + '\n\n## Native activity\n\n'
-    + audit.agents.map(agent => `- ${safe(agent.agent)} (${safe(agent.sessionId)}): ${safe(agent.state ?? 'unknown')}`).join('\n')
-    + '\n\nSession idle means the response ended, not acceptance approval. Solo is a local mirror; Taskavel remains authoritative.\n';
+  const title = `Team activity — ${audit.harness === 'codex' ? 'Codex' : 'Claude Code'}`;
+  const content = renderNativeAudit(audit).replace(/^# .*\n/, `# ${title}\n`);
   const scratchpads = list('scratchpads');
   if (scratchpads.length > 1) throw new Error('Duplicate native Solo scratchpads require review');
   if (!scratchpads.length) call(['scratchpads', 'create', ...scope, '--name', title, '--tag', tag, '--content-file', '-'], content);
@@ -125,15 +193,12 @@ async function mirror(audit, { project, invoke = spawnSync, binding } = {}) {
   }
   const todos = list('todos');
   const desired = audit.plan.map((item, index) => ({
-    key: `plan-${index}`, title: `[Native plan] ${safe(item.step)}`,
+    key: `plan-${index}`, title: safe(item.step),
     body: `Native plan status: ${safe(item.status)}. This is execution status, not independent acceptance.`,
     status: item.status === 'completed' ? 'completed' : ['inProgress', 'in_progress'].includes(item.status) ? 'in_progress' : 'open',
   }));
-  for (const agent of audit.agents.filter(agent => agent.parentSessionId)) desired.push({
-    key: `agent-${hash(agent.sessionId)}`, title: `[Native agent] ${safe(agent.agent)}`,
-    body: `Session: ${safe(agent.sessionId)}\nModel: ${safe(agent.model)}\nState: ${safe(agent.state ?? 'unknown')}\nCumulative tokens: ${agent.tokens?.total ?? 'unavailable'}\nCost: unavailable\nResponse completion is not acceptance approval.`,
-    status: agent.state === 'running' ? 'in_progress' : 'open',
-  });
+  // Todos represent work, not telemetry. Preserve any older activity todos;
+  // do not create more or silently delete records from an existing run.
   for (const item of desired) {
     const marker = `Orkestar observation: ${tag}/${item.key}`;
     const body = `${marker}\n${item.body}`;

@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { herdrSessionName } from './session-name.mjs';
 import { launcherArgs } from './harness-launcher.mjs';
 import { findSoloCli, launchInSolo } from './solo-workspace.mjs';
-import { installNativeObserver } from './native-observer-install.mjs';
+import { prepareNativeSolo } from './native-solo-setup.mjs';
 import { refreshProjectRuntime } from './project-runtime-refresh.mjs';
 import { bindSoloObserver } from './native-solo-mirror.mjs';
 import {
@@ -42,6 +42,8 @@ Usage:
   lenka connect taskavel [cursor|codex|claude|opencode]
   lenka status [--project PATH]
   lenka report last [--project PATH]
+  lenka worker dispatch --contract PROJECT_FILE [--project PATH]
+  lenka worker status|result --run-id ID [--project PATH]
   lenka doctor [cursor|codex|claude|kimi|opencode] [--project PATH]
 
 Options:
@@ -342,10 +344,10 @@ function shouldOpenHerdr(options, environment = process.env) {
   return options.herdr && environment.HERDR_ENV !== '1';
 }
 
-async function launchInstalledRuntime(runtime, options) {
-  const refreshed = refreshProjectRuntime({ project: fs.realpathSync(options.project),
+async function launchInstalledRuntime(runtime, options, dependencies = {}) {
+  const refreshed = (dependencies.refreshProjectRuntime ?? refreshProjectRuntime)({ project: fs.realpathSync(options.project),
     harness: runtime.harness, manifest: runtime.manifest });
-  console.log('\nLenka is ready.');
+  console.log(options.workspace === 'solo' && !options.noLaunch ? '\nStarting Lenka in Solo…' : '\nLenka is ready.');
   console.log(`Project: ${options.project}`);
   console.log(`Harness: ${runtime.harness}`);
   console.log(`Conductor model: ${runtime.manifest.primary.model}`);
@@ -357,11 +359,12 @@ async function launchInstalledRuntime(runtime, options) {
   if (options.noLaunch) return 0;
 
   if (options.workspace === 'solo') {
-    const observation = ['codex', 'claude'].includes(runtime.harness)
-      ? await installNativeObserver({ project: fs.realpathSync(options.project), harness: runtime.harness,
-        nodeBinary: process.execPath, sourceRoot: repoRoot }) : null;
-    const launched = launchInSolo(runtime, options, { locate: executable, launcherArgs,
+    const native = await (dependencies.prepareNativeSolo ?? prepareNativeSolo)({ project: fs.realpathSync(options.project), harness: runtime.harness,
+      nodeBinary: process.execPath, sourceRoot: repoRoot });
+    const observation = native?.observer;
+    const launched = (dependencies.launchInSolo ?? launchInSolo)(runtime, options, { locate: executable, launcherArgs,
       bindObserver: observation ? bindSoloObserver : null });
+    console.log('Lenka is ready.');
     console.log(`Workspace: Solo (${launched.project.name})`);
     console.log(`Agent: ${launched.process.name} (${runtime.harness})`);
     console.log(`Solo MCP: connected${launched.mcp.changed ? ' now' : ''}`);
@@ -369,6 +372,8 @@ async function launchInstalledRuntime(runtime, options) {
     console.log(`Session: ${launched.reused ? 'reused' : 'new'}`);
     if (observation?.trustRequired) console.log(`Native observation: ${observation.trustInstruction}`);
     if (observation?.changed && launched.reused) console.log('Observer updated: start a new native session to load the hooks; current work was preserved.');
+    if (native?.worker) console.log('Visible workers: project-local dispatch bridge installed; role capability checks run before each dispatch.');
+    if (native?.worker.changed && launched.reused) console.log('Worker bridge updated: start a new native session to load it; current work was preserved.');
     return 0;
   }
 
@@ -508,7 +513,9 @@ function refreshOpenCodeAudit(audit, project) {
            s.tokens_output, s.tokens_reasoning, s.tokens_cache_read, s.tokens_cache_write, s.time_created
     FROM session s JOIN tree t ON s.parent_id = t.id
   ) SELECT * FROM tree ORDER BY time_created ASC`;
-  const result = spawnSync(binary, ['db', query, '--format', 'json'], { cwd: project, encoding: 'utf8' });
+  const result = spawnSync(binary, ['db', query, '--format', 'json'], {
+    cwd: project, encoding: 'utf8', timeout: 10000, maxBuffer: 10 * 1024 * 1024,
+  });
   if (result.status !== 0) return audit;
   let rows;
   try {
@@ -516,41 +523,69 @@ function refreshOpenCodeAudit(audit, project) {
   } catch {
     return audit;
   }
-  if (!Array.isArray(rows) || !rows.length) return audit;
-  const agents = rows.map((row, index) => {
-    let model = row.model || 'unavailable';
+  const identity = value => typeof value === 'string' && value.length > 0 && value.length <= 256
+    && !/[\u0000-\u001f\u007f-\u009f]/.test(value);
+  if (!Array.isArray(rows) || !rows.length || rows.length > 10000
+    || rows.some(row => !row || typeof row !== 'object' || !identity(row.id))) return audit;
+  const byId = new Map();
+  for (const row of rows) {
+    if (byId.has(row.id)) return audit;
+    byId.set(row.id, row);
+  }
+  const root = byId.get(audit.sessionId);
+  if (!root || root.parent_id !== null) return audit;
+  const rooted = new Set([root.id]);
+  for (const row of rows) {
+    const visiting = new Set();
+    let current = row;
+    while (!rooted.has(current.id)) {
+      if (visiting.has(current.id) || !identity(current.parent_id) || !byId.has(current.parent_id)) return audit;
+      visiting.add(current.id);
+      current = byId.get(current.parent_id);
+    }
+    for (const id of visiting) rooted.add(id);
+  }
+  const token = value => Number.isSafeInteger(value) && value >= 0 ? value : 'unavailable';
+  const cost = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 'unavailable';
+  const sum = (values, validate) => values.every(value => typeof value === 'number')
+    ? validate(values.reduce((total, value) => total + value, 0)) : 'unavailable';
+  const agents = rows.map(row => {
+    let model = typeof row.model === 'string' && row.model.trim() ? row.model : 'unavailable';
     try {
       const parsed = JSON.parse(model);
-      model = parsed.providerID && (parsed.id || parsed.modelID)
+      model = parsed?.providerID && (parsed.id || parsed.modelID)
         ? `${parsed.providerID}/${parsed.id || parsed.modelID}`
         : (parsed.id || parsed.modelID || model);
     } catch {
       // A plain model string is already usable.
     }
+    if (typeof model !== 'string' || !model.trim()) model = 'unavailable';
     const tokens = {
-      input: Number(row.tokens_input || 0),
-      output: Number(row.tokens_output || 0),
-      reasoning: Number(row.tokens_reasoning || 0),
-      cacheRead: Number(row.tokens_cache_read || 0),
-      cacheWrite: Number(row.tokens_cache_write || 0),
+      input: token(row.tokens_input),
+      output: token(row.tokens_output),
+      reasoning: token(row.tokens_reasoning),
+      cacheRead: token(row.tokens_cache_read),
+      cacheWrite: token(row.tokens_cache_write),
     };
     return {
       sessionId: row.id,
       parentSessionId: row.parent_id,
-      agent: row.agent || (index === 0 ? 'lenka' : 'unavailable'),
+      agent: row.agent || (row.id === root.id ? 'lenka' : 'unavailable'),
       task: row.title || 'unavailable',
       model,
-      tokens: { ...tokens, total: tokens.input + tokens.output + tokens.reasoning },
-      cost: Number(row.cost || 0),
+      tokens: { ...tokens, total: Object.values(tokens).every(value => typeof value === 'number')
+        ? sum([tokens.input, tokens.output, tokens.reasoning], token) : 'unavailable' },
+      cost: cost(row.cost),
     };
   });
+  const totals = { tokens: sum(agents.map(agent => agent.tokens.total), token), cost: sum(agents.map(agent => agent.cost), cost) };
+  const complete = totals.tokens !== 'unavailable' && totals.cost !== 'unavailable' && agents.every(agent => agent.model !== 'unavailable');
   return {
     ...audit,
+    status: !complete && audit.status === 'DONE' ? 'PARTIAL' : audit.status,
+    blockers: !complete ? [...(Array.isArray(audit.blockers) ? audit.blockers : []), 'Refreshed native telemetry is incomplete or invalid.'] : audit.blockers,
     agents,
-    totals: {
-      tokens: agents.reduce((sum, agent) => sum + agent.tokens.total, 0),
-      cost: agents.reduce((sum, agent) => sum + agent.cost, 0),
-    },
+    totals: { ...totals, complete },
     refreshedAt: new Date().toISOString(),
   };
 }
@@ -575,6 +610,9 @@ function report(options) {
   } catch {
     throw new Error(`invalid orchestra audit report: ${reportPath}`);
   }
+  if (!audit || typeof audit !== 'object' || !Array.isArray(audit.agents)
+    || audit.agents.some(agent => !agent || typeof agent !== 'object')
+    || !['DONE', 'PARTIAL', 'FAILED'].includes(audit.status)) throw new Error('Invalid orchestra audit report structure');
   if (audit.harness === 'opencode') audit = refreshOpenCodeAudit(audit, options.project);
   if (reportPath === nativePath) {
     if (audit.observerSchema !== 1 || audit.project !== fs.realpathSync(options.project)) throw new Error('Invalid native observation report scope');
@@ -591,11 +629,26 @@ function report(options) {
     console.log(`- ${agent.agent}: ${agent.model || 'unavailable'} — ${tokens(agent.tokens?.total)} tokens — ${cost(agent.cost)}`);
   }
   console.log(`Total: ${tokens(audit.totals?.tokens)} tokens — ${cost(audit.totals?.cost)}`);
-  if (audit.verification.length) {
+  if (Array.isArray(audit.verification) && audit.verification.length) {
     console.log('Verification:');
     for (const item of audit.verification) console.log(`- ${item}`);
   }
-  if (audit.blockers.length) {
+  if (Array.isArray(audit.proof) && audit.proof.length) {
+    console.log('Behavior proof:');
+    for (const item of audit.proof) {
+      if (!item || typeof item !== 'object') continue;
+      console.log(`- [${item.result ?? 'unavailable'}] ${item.criterion ?? 'unavailable'} — ${item.method ?? 'unavailable'} — ${Array.isArray(item.evidence) ? item.evidence.join('; ') : 'evidence unavailable'}`);
+    }
+  }
+  if (audit.trackerReconciliation && typeof audit.trackerReconciliation === 'object') {
+    const tracker = audit.trackerReconciliation;
+    console.log(`Taskavel supplied-packet reconciliation: ${tracker.doneEligible === true ? 'eligible' : 'PARTIAL'} (saved snapshot; not a live tracker read).`);
+    if (Array.isArray(tracker.reasons)) for (const reason of tracker.reasons) console.log(`- ${reason}`);
+    if (Array.isArray(tracker.tasks)) for (const task of tracker.tasks) {
+      if (task && typeof task === 'object') console.log(`- Task ${task.taskId}: accepted proof ${task.acceptedProof === true ? 'yes' : 'no'}; tracker eligible ${task.doneEligible === true ? 'yes' : 'no'}`);
+    }
+  }
+  if (Array.isArray(audit.blockers) && audit.blockers.length) {
     console.log('Blockers:');
     for (const item of audit.blockers) console.log(`- ${item}`);
   }
@@ -603,6 +656,7 @@ function report(options) {
 }
 
 async function main(argv = process.argv.slice(2)) {
+  if (argv[0] === 'worker') return (await import('./native-solo-worker-cli.mjs')).workerCli(argv.slice(1));
   const options = parse(argv);
   if (options.command === 'help') {
     usage();
@@ -627,4 +681,4 @@ if (invokedFile === fileURLToPath(import.meta.url)) {
   }
 }
 
-export { ensureHarnessAuthentication, main, manifests, needsFirstRunSetup, parse, selectInstalledRuntime, setup, shouldOpenHerdr };
+export { ensureHarnessAuthentication, launchInstalledRuntime, main, manifests, needsFirstRunSetup, parse, selectInstalledRuntime, setup, shouldOpenHerdr };

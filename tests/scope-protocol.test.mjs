@@ -145,8 +145,8 @@ test('multi-tool project install emits protocol assets once and runtime paths ar
   const project = '/tmp/example-project';
   const plan = buildPlan({ selectedTools: ['opencode', 'codex', 'claude'], project, projectOnly: true, resolvedModelsByTool: {}, resolvedFactoryModelsByTool: {} });
   const protocolTargets = plan.operations.filter((operation) => operation.target.includes(`${path.sep}.agent-orchestra${path.sep}protocol${path.sep}`));
-  assert.equal(protocolTargets.length, 4);
-  assert.deepEqual(protocolTargets.map((operation) => path.basename(operation.target)).sort(), ['agent-result.schema.json', 'phase-packet.schema.json', 'task-contract.schema.json', 'task-contract.template.json']);
+  assert.equal(protocolTargets.length, 5);
+  assert.deepEqual(protocolTargets.map((operation) => path.basename(operation.target)).sort(), ['agent-result.schema.json', 'native-report.md', 'phase-packet.schema.json', 'task-contract.schema.json', 'task-contract.template.json']);
 
   const manifest = JSON.parse(runtimeManifest('codex', { mid: 'gpt-5.6-terra' }));
   assert.equal(manifest.scopeProtocol.contract, '.agent-orchestra/protocol/task-contract.schema.json');

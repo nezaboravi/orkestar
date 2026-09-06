@@ -68,3 +68,9 @@ the work is DONE, with evidence.
   covering both security and performance, APPROVED verdict, and re-review
   evidence after repairs. UNVERIFIED is not PASS. NOT APPLICABLE requires a
   concrete explanation tied to the changed surface.
+- When tracker synchronization is required, reject overall DONE without a
+  fresh scoped tracker reconciliation packet: each required task's full link,
+  acceptance evidence, actual column and completion state, and read-back time.
+  Do not demand every unrelated project task be closed. A failed or unverified
+  required transition is an explicit gap; the conductor owns the correction,
+  never the read-only auditor.

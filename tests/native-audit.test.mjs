@@ -54,7 +54,7 @@ test('rendering is metadata only and safely separates unknown models and cost', 
     children: [session('a', 'root', { role: '<reviewer>|line' })] });
   const rendered = renderNativeAudit(audit);
   assert.match(rendered, /Independent acceptance: pending/);
-  assert.match(rendered, /unavailable \| unavailable/);
+  assert.match(rendered, /Conductor \| unavailable/);
   assert.match(rendered, /&lt;reviewer&gt;\\\|line/);
   assert.doesNotMatch(rendered, /SECRET|100|DONE/);
   assert.equal(audit.agents[0].cost, null);

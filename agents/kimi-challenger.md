@@ -1,7 +1,7 @@
 ---
 description: Optional independent Kimi K3 second opinion for explicit model comparisons or disputed technical approaches.
 mode: subagent
-variant: max
+variant: high
 steps: 22
 color: secondary
 permission:
