@@ -371,7 +371,6 @@ async function launchInstalledRuntime(runtime, options, dependencies = {}) {
     console.log(`Solo MCP: connected${launched.mcp.changed ? ' now' : ''}`);
     console.log(`Process: ${launched.process.id}`);
     console.log(`Session: ${launched.reused ? 'reused' : 'new'}`);
-    if (observation?.trustRequired) console.log(`Native observation: ${observation.trustInstruction}`);
     if (observation?.changed && launched.reused) console.log('Observer updated: start a new native session to load the hooks; current work was preserved.');
     if (native?.worker) console.log('Visible workers: project-local dispatch bridge installed; role capability checks run before each dispatch.');
     if (native?.worker.changed && launched.reused) console.log('Worker bridge updated: start a new native session to load it; current work was preserved.');

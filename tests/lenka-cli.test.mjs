@@ -152,19 +152,24 @@ test('public Solo Codex launch cannot pass the legacy launcher into production',
   const { launchInstalledRuntime } = await import('../lenka.mjs');
   const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lenka-public-solo-conductor-')));
   let launchDependencies;
-  const result = await launchInstalledRuntime({ harness: 'codex', binary: '/verified/codex',
-    manifest: { primary: { model: 'gpt-6-astra', reasoningEffort: 'medium' } } },
-  { project, workspace: 'solo', noLaunch: false }, {
-    refreshProjectRuntime: () => ({ changed: 0 }),
-    prepareNativeSolo: async () => ({ worker: { changed: false } }),
-    launchInSolo: (runtime, options, dependencies) => {
-      launchDependencies = dependencies;
-      return { project: { name: 'demo' }, process: { id: 91, name: 'Lenka — Codex · Solo team' },
-        reused: false, mcp: { changed: false } };
-    },
-  });
+  const output = []; const originalLog = console.log; console.log = (...values) => output.push(values.join(' '));
+  let result;
+  try {
+    result = await launchInstalledRuntime({ harness: 'codex', binary: '/verified/codex',
+      manifest: { primary: { model: 'gpt-6-astra', reasoningEffort: 'medium' } } },
+    { project, workspace: 'solo', noLaunch: false }, {
+      refreshProjectRuntime: () => ({ changed: 0 }),
+      prepareNativeSolo: async () => ({ observer: { trustRequired: true, trustInstruction: 'Open /hooks in Codex.' }, worker: { changed: false } }),
+      launchInSolo: (runtime, options, dependencies) => {
+        launchDependencies = dependencies;
+        return { project: { name: 'demo' }, process: { id: 91, name: 'Lenka — Codex · Solo team' },
+          reused: false, mcp: { changed: false } };
+      },
+    });
+  } finally { console.log = originalLog; }
   assert.equal(result, 0);
   assert.equal(launchDependencies.launcherArgs, undefined);
+  assert.doesNotMatch(output.join('\n'), /\/hooks/);
 });
 
 test('a stale verified route runs bootstrap before Lenka launches again', async () => {
