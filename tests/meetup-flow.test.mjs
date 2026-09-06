@@ -9,7 +9,7 @@ test('source delivery instructions retain repair and independent re-review befor
   assert.match(rules, /re-review/);
   assert.match(rules, /Time-boxed demonstrations/);
   assert.match(rules, /do not kill processes/);
-  assert.match(rules, /column\n  AND completion state/);
+  assert.match(rules, /column\s+AND completion state/);
   assert.match(rules, /completed individually/);
   assert.match(rules, /prevents overall DONE/);
 });

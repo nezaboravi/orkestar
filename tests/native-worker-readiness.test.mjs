@@ -46,3 +46,29 @@ test('readiness fails closed for malformed worker binding, missing roles, excess
   const invalid = await inspectNativeWorkerReadiness({ project: f.project, harness: 'codex', profiles: Array(11).fill('code-review') }, { invoke: f.invoke, verifySoloBinary: value => value });
   assert.equal(invalid.status, 'BLOCKED'); assert.match(invalid.checks[0].message, /1 to 10/);
 });
+
+test('unbound Taskavel readiness verifies only an explicitly named existing project and leaves binding pending', async () => {
+  const f = fixture(); const calls = [];
+  const result = await inspectNativeWorkerReadiness({ project: f.project, harness: 'codex', profiles: ['taskavel'], requireTaskavel: true, taskavelProjectName: 'Coding Wisely' }, {
+    invoke: f.invoke, verifySoloBinary: value => value,
+    preflightTaskavel: ({ launch }) => { calls.push(launch); return { status: 'connected', projectNames: ['Coding Wisely'] }; },
+  });
+  const taskavel = result.checks.find(check => check.name === 'taskavel');
+  assert.equal(result.ready, true); assert.deepEqual(taskavel, { name: 'taskavel', status: 'connected', verifiedProjectName: 'Coding Wisely', binding: 'pending', bindingPending: true });
+  assert.equal(calls[0].authorization.projectName, 'Coding Wisely');
+  assert.equal(fs.existsSync(path.join(f.project, '.agent-orchestra/runtime/taskavel-binding.json')), false);
+  const missing = await inspectNativeWorkerReadiness({ project: f.project, harness: 'codex', profiles: ['taskavel'], requireTaskavel: true }, { invoke: f.invoke, verifySoloBinary: value => value });
+  assert.match(missing.checks.find(check => check.name === 'taskavel').message, /taskavelProjectName/);
+  for (const preflightTaskavel of [() => { throw new Error('Native Taskavel preflight failed'); }, () => ({ status: 'not-connected' })]) {
+    const blocked = await inspectNativeWorkerReadiness({ project: f.project, harness: 'codex', profiles: ['taskavel'], requireTaskavel: true, taskavelProjectName: 'Coding Wisely' }, { invoke: f.invoke, verifySoloBinary: value => value, preflightTaskavel });
+    assert.equal(blocked.checks.find(check => check.name === 'taskavel').status, 'BLOCKED');
+  }
+});
+
+test('bound Taskavel readiness rejects a conflicting explicit project name', async () => {
+  const f = fixture();
+  fs.writeFileSync(path.join(f.project, '.agent-orchestra/runtime/taskavel-binding.json'), JSON.stringify({ schemaVersion: 1, workspace: f.project, contractId: 'contract', contractHash: 'hash', projectName: 'Demo', projectId: 'name:Demo' }));
+  const result = await inspectNativeWorkerReadiness({ project: f.project, harness: 'codex', profiles: ['taskavel'], requireTaskavel: true, taskavelProjectName: 'Other' }, { invoke: f.invoke, verifySoloBinary: value => value });
+  assert.equal(result.checks.find(check => check.name === 'taskavel').status, 'BLOCKED');
+  assert.match(result.checks.find(check => check.name === 'taskavel').message, /conflicts/);
+});

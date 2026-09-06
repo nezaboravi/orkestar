@@ -12,7 +12,8 @@ test('Solo selects the enabled tool matching the verified harness', () => {
     { id: 1, toolType: 'codex', enabled: false },
     { id: 2, toolType: 'claude', enabled: true },
     { id: 3, toolType: 'codex', enabled: true },
-  ], 'codex').id, 3);
+    readableTool,
+  ], 'codex').id, 99);
 });
 
 test('Solo accepts a generic Cursor tool when this Solo version cannot classify agent CLI', () => {
@@ -158,7 +159,7 @@ test('Solo MCP preflight gives the exact one-time recovery step when disabled', 
   }), /Solo Settings → MCP, turn on MCP server/);
 });
 
-test('Solo launch imports the project and passes adapter-native arguments', () => {
+test('Solo Codex launch imports the project and always uses the readable conductor', () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), 'orkestar-solo-'));
   const canonicalProject = fs.realpathSync(project);
   const calls = [];
@@ -181,10 +182,11 @@ test('Solo launch imports the project and passes adapter-native arguments', () =
     configureMcp: () => ({ changed: false, target: 'test' }),
     openSolo: (projectId) => { opened.push(projectId); return true; },
     verifyStartup: () => ({ status: 'running' }),
-    launcherArgs: (harness, model, cwd, effort, context) => {
-      assert.deepEqual(context, { workspace: 'solo' });
+    launcherArgs: () => { throw new Error('Codex must not use legacy launcher arguments'); },
+    conductorArgs: (runtime, cwd) => {
       assert.equal(cwd, canonicalProject);
-      return ['--model', 'gpt-example', '--approve-for-me'];
+      assert.equal(runtime.manifest.primary.model, 'gpt-example');
+      return ['/installed/native-conductor-live.mjs', '--model', 'gpt-example', `ORKESTAR_SOLO_CONDUCTOR_${'b'.repeat(64)}`];
     },
     invoke(binary, args, cwd) {
       calls.push({ binary, args, cwd });
@@ -196,8 +198,9 @@ test('Solo launch imports the project and passes adapter-native arguments', () =
   assert.deepEqual(calls[2].args, ['projects', 'create', path.basename(canonicalProject), canonicalProject]);
   assert.deepEqual(calls[5].args, [
     'processes', 'spawn', '--project-id', '42', '--kind', 'agent',
-    '--agent-tool-id', '7', '--name', 'Lenka — Codex · Solo team',
-    '--arg', '--model', '--arg', 'gpt-example', '--arg', '--approve-for-me',
+    '--agent-tool-id', '99', '--name', 'Lenka — Codex · Solo team',
+    '--arg', '/installed/native-conductor-live.mjs', '--arg', '--model', '--arg', 'gpt-example',
+    '--arg', `ORKESTAR_SOLO_CONDUCTOR_${'b'.repeat(64)}`,
   ]);
   assert.deepEqual(opened, [42]);
 });
@@ -314,14 +317,15 @@ test('Solo matches its selected native command instead of a different PATH insta
 
 test('Solo restarts an exited Codex conductor bound to its distinct bundled binary', () => {
   const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'solo-native-restart-')));
-  const tool = { id: 4, toolType: 'codex', enabled: true, command: '/Applications/Example.app/Contents/Resources/codex' };
-  const existing = { id: 166, projectId: 30, name: soloProcessName('codex'), kind: 'agent', status: 'exited', command: `${tool.command} --model gpt-example` };
+  const tool = readableTool;
+  const marker = `ORKESTAR_SOLO_CONDUCTOR_${'a'.repeat(64)}`;
+  const existing = { id: 166, projectId: 30, name: soloProcessName('codex'), kind: 'agent', status: 'exited', command: `${tool.command} --model gpt-example ${marker}` };
   const responses = [{ ready: true }, { projects: [{ id: 30, path: project }] }, { processes: [existing] },
-    { agentTools: [readableTool, tool] }, { process: { ...existing, status: 'starting' } }];
+    { agentTools: [tool] }, { process: { ...existing, status: 'starting' } }];
   const calls = [];
   const result = launchInSolo({ harness: 'codex', binary: '/different/path/codex', manifest: { primary: { model: 'gpt-example' } } }, { project }, {
     binary: '/verified/solo', soloMcp: '/verified/mcp', verifyMcp: () => true, configureMcp: () => ({}), openSolo: () => true,
-    launcherArgs: () => ['--model', 'gpt-example'], verifyStartup: () => ({ status: 'running' }),
+    conductorArgs: () => ['--model', 'gpt-example', marker], verifyStartup: () => ({ status: 'running' }),
     invoke(binary, args) { calls.push(args); return { status: 0, stdout: JSON.stringify({ ok: true, data: responses.shift() }) }; },
   });
   assert.equal(result.reused, true); assert.equal(result.process.id, 166);
@@ -332,18 +336,18 @@ test('Solo restarts an exited Codex conductor bound to its distinct bundled bina
 test('Solo never reuses a Codex process with missing or outdated conductor instructions', () => {
   for (const status of ['running', 'stopped']) {
     const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'solo-stale-conductor-')));
-    const tool = { id: 4, toolType: 'codex', enabled: true, command: '/verified/codex' };
+    const tool = readableTool;
     const existing = { id: 166, projectId: 30, name: soloProcessName('codex'), kind: 'agent', status,
-      command: '/verified/codex --model gpt-example --enable multi_agent' };
+      command: `${tool.command} --model gpt-example --enable multi_agent` };
     const marker = `ORKESTAR_SOLO_CONDUCTOR_${'a'.repeat(64)}`;
     const responses = [{ ready: true }, { projects: [{ id: 30, path: project }] }, { processes: [existing] },
-      { agentTools: [readableTool, tool] }, { process: { id: 167, kind: 'agent', status: 'running' } }];
+      { agentTools: [tool] }, { process: { id: 167, kind: 'agent', status: 'running' } }];
     const calls = [];
-    const run = () => launchInSolo({ harness: 'codex', binary: tool.command,
+    const run = () => launchInSolo({ harness: 'codex', binary: '/verified/codex',
       manifest: { primary: { model: 'gpt-example' } } }, { project }, {
       binary: '/verified/solo', soloMcp: '/verified/mcp', verifyMcp: () => true,
       configureMcp: () => ({}), openSolo: () => true, verifyStartup: () => ({ status: 'running' }),
-      launcherArgs: () => ['--model', 'gpt-example', '--config', `developer_instructions="${marker}"`, '--disable', 'multi_agent'],
+      conductorArgs: () => ['--model', 'gpt-example', marker],
       invoke(binary, args) { calls.push(args); return { status: 0, stdout: JSON.stringify({ ok: true, data: responses.shift() }) }; },
     });
     if (status === 'running') {
@@ -365,7 +369,7 @@ test('Solo launch fails clearly when the selected harness is unavailable', () =>
     { ready: true },
     { projects: [{ id: 1, path: project }] },
     { processes: [] },
-    { agentTools: [readableTool, { id: 2, toolType: 'claude', enabled: true }] },
+    { agentTools: [{ id: 2, toolType: 'claude', enabled: true }] },
   ];
   assert.throws(() => launchInSolo({
     harness: 'codex', manifest: { primary: { model: 'gpt-example' } },
@@ -380,7 +384,7 @@ test('Solo launch fails clearly when the selected harness is unavailable', () =>
     invoke() {
       return { status: 0, stdout: JSON.stringify({ ok: true, data: responses.shift() }), stderr: '' };
     },
-  }), /no enabled codex agent tool/);
+  }), /Readable Solo workers need one-time setup/);
 });
 
 test('Solo desktop is opened and awaited when its API is not running', () => {

@@ -38,6 +38,25 @@ test('profile-specific same-class routes remain exact; unsafe cached profiles fa
   assert.deepEqual(fs.readdirSync(bad.project), []);
 });
 
+test('refresh keeps the explicit Codex coordinator separate from mid worker routes', () => {
+  const f = fixture('codex');
+  f.manifest.primary.model = 'gpt-6-astra';
+  refreshProjectRuntime(f);
+  const lead = fs.readFileSync(path.join(f.project, '.codex', 'agents', 'dev-lead.toml'), 'utf8');
+  const lenka = fs.readFileSync(path.join(f.project, '.codex', 'agents', 'lenka.toml'), 'utf8');
+  assert.match(lead, /model = "mid"/);
+  assert.doesNotMatch(lead, /gpt-6-astra/);
+  assert.match(lenka, /model = "gpt-6-astra"/);
+});
+
+test('a cached runtime from an older routing revision is rejected before it can retain an old Lenka route', () => {
+  const f = fixture('codex');
+  f.manifest.routingRevision = 1;
+  f.manifest.primary.model = 'gpt-5.6-terra';
+  assert.throws(() => refreshProjectRuntime(f), /routes require revalidation/);
+  assert.deepEqual(fs.readdirSync(f.project), []);
+});
+
 test('conflicting project files are backed up and symlink parents reject before writes', () => {
   const f = fixture('claude');
   fs.mkdirSync(path.join(f.project, '.claude', 'agents'), { recursive: true });

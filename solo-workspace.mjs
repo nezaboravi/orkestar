@@ -7,6 +7,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 import { liveWorkerTool } from './native-worker-live.mjs';
+import { soloCodexInstructions } from './harness-launcher.mjs';
 
 function bundledSoloCandidates(platform = process.platform, home = os.homedir(), environment = process.env) {
   const candidates = [];
@@ -206,6 +207,7 @@ function defaultInvoke(binary, args, cwd) {
 
 function selectAgentTool(agentTools, harness) {
   const enabled = agentTools.filter((tool) => tool.enabled !== false);
+  if (harness === 'codex') return liveWorkerTool(enabled);
   const native = enabled.find((tool) => tool.toolType === harness);
   if (native) return native;
   if (harness === 'cursor') {
@@ -216,6 +218,18 @@ function selectAgentTool(agentTools, harness) {
     }) || null;
   }
   return null;
+}
+
+function conductorArgs(runtime, projectPath) {
+  const script = path.join(projectPath, '.agent-orchestra', 'worker', 'native-conductor-live.mjs');
+  const stat = fs.lstatSync(script);
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 256 * 1024) throw new Error('Installed readable Lenka conductor is missing; run lenka up to refresh the project');
+  const instructions = soloCodexInstructions(projectPath);
+  const marker = instructions.match(/ORKESTAR_SOLO_CONDUCTOR_[a-f0-9]{64}/)?.[0];
+  if (!marker) throw new Error('Installed readable Lenka conductor marker is missing');
+  return [script, '--project', projectPath, '--codex', runtime.binary, '--model', runtime.manifest.primary.model,
+    '--instructions-base64', Buffer.from(instructions).toString('base64'), '--marker', marker,
+    ...(runtime.manifest.primary.reasoningEffort ? ['--effort', runtime.manifest.primary.reasoningEffort] : [])];
 }
 
 function soloProcessName(harness) {
@@ -234,7 +248,7 @@ function matchesSoloRuntime(processEntry, runtime, name = soloProcessName(runtim
   const model = String(runtime.manifest.primary.model || '');
   const executable = tool ? String(tool.command || '').trim() : String(runtime.binary || '');
   if (!executable || /[\r\n\x00]/.test(executable) || (tool && (tool.enabled === false
-    || !(tool.toolType === runtime.harness || runtime.harness === 'cursor' && tool.toolType === 'generic')))) return false;
+    || !(tool.toolType === runtime.harness || ['cursor', 'codex'].includes(runtime.harness) && tool.toolType === 'generic')))) return false;
   const prefix = command.startsWith(`${executable} `) || command.startsWith(`${JSON.stringify(executable)} `)
     || command.startsWith(`'${executable.replaceAll("'", "'\\''")}' `);
   const modelPattern = new RegExp(`(?:^|\\s)--model(?:=|\\s+)(?:${escapeRegularExpression(model)}|"${escapeRegularExpression(model)}"|'${escapeRegularExpression(model)}')(?=\\s|$)`);
@@ -389,8 +403,11 @@ function launchInSolo(runtime, options, dependencies = {}) {
   if (['codex', 'claude'].includes(runtime.harness)) liveWorkerTool(agentTools);
   const tool = selectAgentTool(agentTools, runtime.harness);
   if (!tool) throw new Error(`Solo has no enabled ${runtime.harness} agent tool on this machine`);
-  const launchArgs = dependencies.launcherArgs(runtime.harness, runtime.manifest.primary.model,
-    projectPath, runtime.manifest.primary.reasoningEffort || null, { workspace: 'solo' });
+  const useConductor = runtime.harness === 'codex';
+  const launchArgs = useConductor
+    ? (dependencies.conductorArgs || conductorArgs)(runtime, projectPath)
+    : (dependencies.launcherArgs || (() => { throw new Error('Missing Solo launcher arguments'); }))(runtime.harness, runtime.manifest.primary.model,
+      projectPath, runtime.manifest.primary.reasoningEffort || null, { workspace: 'solo' });
   const conductorMarker = launchArgs.join(' ').match(/ORKESTAR_SOLO_CONDUCTOR_[a-f0-9]{64}/)?.[0];
   const staleActive = conductorMarker && existingProcesses.find(entry =>
     matchesSoloRuntime(entry, runtime, processName, tool, project.id)
@@ -434,4 +451,4 @@ function launchInSolo(runtime, options, dependencies = {}) {
   return { binary, project, tool, process: processEntry, startup, reused: false, mcp };
 }
 
-export { bundledSoloCandidates, configureSoloMcp, decodeSoloJson, ensureCursorWorkspaceTrusted, ensureSoloReady, findSoloCli, findSoloMcp, launchInSolo, matchesSoloRuntime, openSolo, selectAgentTool, soloProcessName, verifySoloMcpReady, verifySoloStartup };
+export { bundledSoloCandidates, conductorArgs, configureSoloMcp, decodeSoloJson, ensureCursorWorkspaceTrusted, ensureSoloReady, findSoloCli, findSoloMcp, launchInSolo, matchesSoloRuntime, openSolo, selectAgentTool, soloProcessName, verifySoloMcpReady, verifySoloStartup };

@@ -8,10 +8,10 @@ import { captureNativeWorkerResult, finalizeNativeWorkerReport } from '../native
 import { createWorkerMcpHandler } from '../native-solo-worker-mcp.mjs';
 
 const runId = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-function fixture({ capture = true } = {}) {
+function fixture({ capture = true, trackerAuthorization = null } = {}) {
   const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'native-worker-report-')));
   const contract = createTaskContract({ schemaVersion: 1, goal: 'Fixture application', required: [{ id: 'R1', text: 'Observable behavior' }],
-    localDecisions: [], outOfScope: [], discoveryPolicy: 'report-only', changeSurface: { modules: [], fileKinds: [], migrationsAllowed: false, dependenciesAllowed: false, architectureChangesAllowed: false } });
+    localDecisions: [], outOfScope: [], discoveryPolicy: 'report-only', changeSurface: { modules: [], fileKinds: [], migrationsAllowed: false, dependenciesAllowed: false, architectureChangesAllowed: false }, trackerAuthorization });
   const directory = path.join(project, '.agent-orchestra/runs', contract.id); fs.mkdirSync(directory, { recursive: true });
   fs.writeFileSync(path.join(directory, 'task-contract.json'), JSON.stringify(contract));
   fs.mkdirSync(path.join(project, '.agent-orchestra/dispatch'));
@@ -42,9 +42,30 @@ test('native report collects actual workers, enforces gates and persists honest 
   assert.notEqual((await f.execute()).savedPath, report.savedPath);
 });
 
+test('auditor cannot invent local-decision proof criteria beyond immutable contract requirements', async () => {
+  const f = fixture({ capture: false });
+  const auditor = f.workers.find(worker => worker.role === 'dev-auditor');
+  const verdict = JSON.parse(auditor.result);
+  verdict.proof.push({ criterionId: 'LD2', result: 'passed', method: 'Invented tracker closure', evidence: ['none'] });
+  auditor.result = JSON.stringify(verdict);
+  assert.equal((await f.execute()).status, 'PARTIAL');
+});
+
 test('native report rejects agent proliferation beyond the worker-session budget', async () => {
   const f = fixture();
   f.report.workerRunIds = Array.from({ length: 13 }, (_, index) => runId(index + 1));
+  await assert.rejects(f.execute(), /Invalid native report input/);
+});
+
+test('a readiness block before dispatch persists an honest zero-worker FAILED or PARTIAL report', async () => {
+  const f = fixture({ capture: false });
+  f.report.workerRunIds = []; f.report.status = 'FAILED'; f.report.blockers = ['Native readiness blocked before dispatch.'];
+  const failed = await f.execute();
+  assert.equal(failed.status, 'FAILED'); assert.deepEqual(failed.agents, []);
+  assert.equal(JSON.parse(fs.readFileSync(failed.savedPath)).blockers[0], 'Native readiness blocked before dispatch.');
+  f.report.status = 'PARTIAL';
+  assert.equal((await f.execute()).status, 'PARTIAL');
+  f.report.status = 'DONE';
   await assert.rejects(f.execute(), /Invalid native report input/);
 });
 
@@ -103,6 +124,33 @@ test('post-audit scoped tracker closure requires fresh readback and cannot hide 
     assert.equal((await execute(false)).status, 'PARTIAL');
     assert.equal((await f.execute()).status, 'PARTIAL', 'caller cannot replace authenticated readback');
   }
+});
+test('runtime tracker close-out is contract-bound, follows audit, and still requires fresh readback', async () => {
+  const f = fixture({ trackerAuthorization: { projectName: 'Demo', taskIds: [41], operations: ['read', 'move-task', 'update-task'], externalWriteAuthorized: true } });
+  f.report.taskavel = 'synced';
+  f.report.trackerReconciliation = { projectId: 'name:Demo', checkedAt: 7000, requiredTasks: [{ taskId: '41', doneColumnId: 'name:Done', claimedComplete: true,
+    lastUpdateAttemptAt: 6800, proof: { accepted: true, evidenceIds: ['audit-proof'] } }], snapshots: [] };
+  f.report.trackerCloseout = { authorization: { projectId: null, projectName: 'Demo', taskIds: [41], operations: ['read', 'move-task', 'update-task'], externalWriteAuthorized: true },
+    tasks: [{ taskId: 41, doneColumnName: 'Done' }] };
+  let operations = 0;
+  const result = await finalizeNativeWorkerReport({ project: f.project, harness: 'codex', report: f.report }, {
+    collect: ({ runId }) => f.workers.find(worker => worker.runId === runId), now: () => 7000,
+    applyTrackerCloseout: async () => { operations++; return { projectId: 'name:Demo', receipts: [{ taskId: '41', completedAt: 6800 }] }; },
+    reconcileTracker: async () => ({ projectId: 'name:Demo', checkedAt: 7000, snapshots: [{ projectId: 'name:Demo', taskId: '41', columnId: 'name:Done', completed: true, readAt: 6900 }] }),
+  });
+  assert.equal(operations, 1); assert.equal(result.status, 'DONE');
+  f.report.trackerCloseout.authorization.taskIds = [42];
+  assert.equal((await f.execute()).status, 'PARTIAL');
+});
+test('same report serializes close-out and never retries an ambiguous adapter failure', async () => {
+  const f = fixture({ trackerAuthorization: { projectName: 'Demo', taskIds: [41], operations: ['read', 'move-task', 'update-task'], externalWriteAuthorized: true } });
+  f.report.taskavel = 'synced'; f.report.trackerReconciliation = { projectId: 'name:Demo', checkedAt: 7000, snapshots: [], requiredTasks: [{ taskId: '41', doneColumnId: 'name:Done', claimedComplete: true, lastUpdateAttemptAt: 6800, proof: { accepted: true, evidenceIds: ['audit-proof'] } }] };
+  f.report.trackerCloseout = { authorization: { projectId: null, projectName: 'Demo', taskIds: [41], operations: ['read', 'move-task', 'update-task'], externalWriteAuthorized: true }, tasks: [{ taskId: 41, doneColumnName: 'Done' }] };
+  let calls = 0;
+  const deps = { collect: ({ runId }) => f.workers.find(worker => worker.runId === runId), now: () => 7000,
+    applyTrackerCloseout: async () => { calls++; throw new Error('lost acknowledgement'); }, reconcileTracker: async () => ({ projectId: 'name:Demo', checkedAt: 7000, snapshots: [] }) };
+  const [one, two] = await Promise.all([finalizeNativeWorkerReport({ project: f.project, harness: 'codex', report: f.report }, deps), finalizeNativeWorkerReport({ project: f.project, harness: 'codex', report: f.report }, deps)]);
+  assert.equal(calls, 1); assert.equal(one.status, 'PARTIAL'); assert.equal(two.status, 'PARTIAL');
 });
 test('legacy chronology, missing required roles and incomplete workers cannot claim DONE', async () => {
   const legacy = fixture({ capture: false }); assert.equal((await legacy.execute()).status, 'PARTIAL');

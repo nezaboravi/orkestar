@@ -148,6 +148,68 @@ test('Lenka reuses a verified global runtime without a project reinstall', async
   assert.equal(selected.binary, '/verified/codex');
 });
 
+test('public Solo Codex launch cannot pass the legacy launcher into production', async () => {
+  const { launchInstalledRuntime } = await import('../lenka.mjs');
+  const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lenka-public-solo-conductor-')));
+  let launchDependencies;
+  const result = await launchInstalledRuntime({ harness: 'codex', binary: '/verified/codex',
+    manifest: { primary: { model: 'gpt-6-astra', reasoningEffort: 'medium' } } },
+  { project, workspace: 'solo', noLaunch: false }, {
+    refreshProjectRuntime: () => ({ changed: 0 }),
+    prepareNativeSolo: async () => ({ worker: { changed: false } }),
+    launchInSolo: (runtime, options, dependencies) => {
+      launchDependencies = dependencies;
+      return { project: { name: 'demo' }, process: { id: 91, name: 'Lenka — Codex · Solo team' },
+        reused: false, mcp: { changed: false } };
+    },
+  });
+  assert.equal(result, 0);
+  assert.equal(launchDependencies.launcherArgs, undefined);
+});
+
+test('a stale verified route runs bootstrap before Lenka launches again', async () => {
+  const { RuntimeRoutingRevalidationError } = await import('../project-runtime-refresh.mjs');
+  const { up } = await import('../lenka.mjs');
+  const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lenka-stale-route-')));
+  const stale = { harness: 'codex', manifest: { primary: { model: 'gpt-5.6-terra' } } };
+  const refreshed = { harness: 'codex', manifest: { primary: { model: 'gpt-6-astra' } } };
+  const launches = [];
+  const commands = [];
+  let selected = 0;
+  const result = await up({ project, workspace: 'direct', workspaceExplicit: true, herdr: false,
+    ask: false, harness: 'codex', conflict: 'backup', noLaunch: true }, {
+    loadPreferences: () => ({ harness: 'codex', workspace: 'direct' }),
+    ensureHarnessAuthentication: async () => {},
+    selectInstalledRuntime: () => (selected++ === 0 ? stale : refreshed),
+    launchInstalledRuntime: async (runtime) => {
+      launches.push(runtime.manifest.primary.model);
+      if (runtime === stale) throw new RuntimeRoutingRevalidationError();
+      return 0;
+    },
+    run: (command, args) => { commands.push([command, args]); return 0; },
+  });
+  assert.equal(result, 0);
+  assert.deepEqual(launches, ['gpt-5.6-terra']);
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0][0], 'sh');
+  assert.ok(commands[0][1].includes('--no-launch'));
+});
+
+test('a runtime launch error other than route revalidation does not trigger bootstrap', async () => {
+  const { up } = await import('../lenka.mjs');
+  const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lenka-runtime-error-')));
+  let bootstrapped = false;
+  await assert.rejects(() => up({ project, workspace: 'direct', workspaceExplicit: true, herdr: false,
+    ask: false, harness: 'codex', conflict: 'backup', noLaunch: true }, {
+    loadPreferences: () => ({ harness: 'codex', workspace: 'direct' }),
+    ensureHarnessAuthentication: async () => {},
+    selectInstalledRuntime: () => ({ harness: 'codex', manifest: { primary: { model: 'gpt-6-astra' } } }),
+    launchInstalledRuntime: async () => { throw new Error('launch failed'); },
+    run: () => { bootstrapped = true; return 0; },
+  }), /launch failed/);
+  assert.equal(bootstrapped, false);
+});
+
 test('Lenka stops with the exact login command before probing an unauthenticated harness', async () => {
   const { ensureHarnessAuthentication } = await import('../lenka.mjs');
   await assert.rejects(() => ensureHarnessAuthentication('cursor', '/project', {

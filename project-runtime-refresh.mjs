@@ -6,6 +6,14 @@ import { buildPlan, classify, runtimeManifest } from './orchestra.mjs';
 const text = value => typeof value === 'string' && value.trim() && value.length <= 512
   && !/[\x00-\x1f\x7f]/.test(value);
 
+export class RuntimeRoutingRevalidationError extends Error {
+  constructor() {
+    super('Cached runtime routes require revalidation');
+    this.name = 'RuntimeRoutingRevalidationError';
+    this.code = 'RUNTIME_ROUTING_REVALIDATION_REQUIRED';
+  }
+}
+
 function guard(project, target) {
   const relative = path.relative(project, target);
   if (!relative || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) throw new Error('Runtime target escaped project');
@@ -39,10 +47,11 @@ export function refreshProjectRuntime({ project, harness, manifest, conflict = '
     || !['backup', 'skip'].includes(conflict) || manifest?.schemaVersion !== 1 || manifest.harness !== harness
     || !text(manifest.primary?.model) || manifest.primary?.role !== 'coordination') throw new Error('Invalid cached runtime scope');
   const expected = JSON.parse(runtimeManifest(harness));
-  if (manifest.primary.modelClass !== expected.primary.modelClass
+  if (manifest.routingRevision !== expected.routingRevision
+    || manifest.primary.modelClass !== expected.primary.modelClass
     || manifest.primary.reasoningEffort !== expected.primary.reasoningEffort || !manifest.profiles
-    || Object.keys(manifest.profiles).length !== Object.keys(expected.profiles).length) throw new Error('Cached runtime profiles require revalidation');
-  const roles = { lenka: manifest.primary.model, 'dev-lead': manifest.primary.model };
+    || Object.keys(manifest.profiles).length !== Object.keys(expected.profiles).length) throw new RuntimeRoutingRevalidationError();
+  const roles = { lenka: manifest.primary.model };
   const candidates = {};
   for (const [name, profile] of Object.entries(expected.profiles)) {
     const cached = manifest.profiles[name];
@@ -54,7 +63,8 @@ export function refreshProjectRuntime({ project, harness, manifest, conflict = '
   }
   const factory = Object.fromEntries(Object.entries(candidates).filter(([, models]) => models.size === 1)
     .map(([modelClass, models]) => [modelClass, [...models][0]]));
-  factory[manifest.primary.modelClass] = manifest.primary.model;
+  if (!factory[manifest.primary.modelClass]) throw new RuntimeRoutingRevalidationError();
+  roles['dev-lead'] = factory[manifest.primary.modelClass];
   const plan = buildPlan({ selectedTools: [harness], projectOnly: true, project,
     resolvedModelsByTool: { [harness]: roles }, resolvedFactoryModelsByTool: { [harness]: factory } });
   const runtimeTarget = path.join(project, '.agent-orchestra', 'runtime', `${harness}.json`);

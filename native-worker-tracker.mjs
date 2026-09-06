@@ -2,10 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { verifySoloBinary } from './native-solo-mirror.mjs';
-import { nativeTaskavelArguments, readNativeCodexTaskavel } from './native-worker-taskavel.mjs';
-import { readTaskavelBinding } from './native-taskavel-binding.mjs';
+import { nativeTaskavelArguments, preflightNativeTaskavelSync, readNativeCodexTaskavel, operateNativeCodexTaskavel } from './native-worker-taskavel.mjs';
+import { bindTaskavelAssignment, readTaskavelBinding } from './native-taskavel-binding.mjs';
+import { executeTrackerCloseout } from './native-tracker-operations.mjs';
+import { validateTaskContract } from './orchestra.mjs';
 
 const LIMIT = 262144;
+const NOFOLLOW = fs.constants.O_NOFOLLOW ?? 0;
 function numericId(value) {
   if (typeof value !== 'string' || !/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value))) throw new Error('Tracker requires canonical positive numeric IDs');
   return Number(value);
@@ -25,6 +28,28 @@ function safeTool(command) {
   if (!path.isAbsolute(command ?? '') || !['codex', 'codex.exe'].includes(path.basename(command))) throw new Error('Unsafe native tracker command');
   fs.accessSync(command, fs.constants.X_OK);
   return command;
+}
+function privateDirectory(project, parts) {
+  let current = project;
+  for (const part of parts) {
+    current = path.join(current, part);
+    try { fs.mkdirSync(current, { mode: 0o700 }); } catch (error) { if (error.code !== 'EEXIST') throw error; }
+    const stat = fs.lstatSync(current);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || fs.realpathSync(current) !== current) throw new Error('Unsafe tracker receipt path');
+  }
+  return current;
+}
+function receiptValue(fd) {
+  const stat = fs.fstatSync(fd);
+  if (!stat.isFile() || stat.size > LIMIT) throw new Error('Invalid tracker receipt');
+  const value = fs.readFileSync(fd, 'utf8');
+  if (Buffer.byteLength(value) > LIMIT) throw new Error('Invalid tracker receipt');
+  return JSON.parse(value);
+}
+function writeReceipt(fd, value) {
+  const content = JSON.stringify(value);
+  if (Buffer.byteLength(content) > LIMIT || !fs.fstatSync(fd).isFile()) throw new Error('Invalid tracker receipt');
+  fs.ftruncateSync(fd, 0); fs.writeSync(fd, content, 0, 'utf8'); fs.fsyncSync(fd);
 }
 
 /** Fresh, no-model readback. Only the installed project-bound native route is used. */
@@ -83,4 +108,67 @@ export async function reconcileNativeWorkerTracker({ project, harness, projectId
     snapshots.push({ projectId, taskId: String(taskId), columnId: snapshot.columnId, completed: snapshot.completed, readAt: snapshot.readAt });
   }
   return { projectId, checkedAt: now(), snapshots };
+}
+
+/** Runtime-owned Taskavel close-out. It has no model turn and can invoke only
+ * the two fixed tools validated by native-tracker-operations. */
+export async function closeNativeWorkerTracker({ project, harness, contract, closeout, reportId }, {
+  invoke = spawnSync, operate = operateNativeCodexTaskavel, now = Date.now,
+} = {}) {
+  if (harness !== 'codex' || !path.isAbsolute(project ?? '') || fs.realpathSync(project) !== project) throw new Error('Native tracker close-out is unavailable');
+  if (typeof reportId !== 'string' || !/^[a-f0-9-]{36}$/.test(reportId)) throw new Error('Native tracker close-out receipt is invalid');
+  const immutableContract = validateTaskContract(contract);
+  const observer = readProjectJson(project, '.agent-orchestra/runtime/solo-observer.json');
+  const runtime = readProjectJson(project, '.agent-orchestra/runtime/codex.json');
+  if (observer.schemaVersion !== 1 || observer.project !== project || !Number.isSafeInteger(observer.projectId) || observer.projectId < 1
+    || !(observer.harnesses ?? [observer.harness]).includes(harness) || runtime.schemaVersion !== 1 || runtime.harness !== harness
+    || runtime.profiles?.taskavel?.permissionEnvelope !== 'task-manager') throw new Error('Native tracker close-out binding is invalid');
+  const soloBinary = verifySoloBinary(observer.soloBinary);
+  const tools = (() => {
+    const result = invoke(soloBinary, ['agents', 'list', '--json'], { cwd: project, encoding: 'utf8', timeout: 15000, maxBuffer: LIMIT });
+    if (result.error || result.status !== 0 || typeof result.stdout !== 'string' || Buffer.byteLength(result.stdout) > LIMIT) throw new Error('Native tracker close-out tool lookup failed');
+    const value = JSON.parse(result.stdout); if (value.ok !== true || !Array.isArray(value.data?.agentTools)) throw new Error('Native tracker close-out tool lookup failed');
+    return value.data.agentTools;
+  })();
+  const matches = tools.filter(tool => tool.enabled === true && tool.toolType === 'codex').filter(tool => {
+    try { safeTool(tool.command); return true; } catch { return false; }
+  });
+  if (matches.length !== 1) throw new Error('Exactly one safe native tracker tool is required');
+  const binary = safeTool(matches[0].command);
+  const authorization = closeout?.authorization;
+  const launch = nativeTaskavelArguments({ harness, model: runtime.profiles.taskavel.model, effort: runtime.profiles.taskavel.reasoningEffort,
+    roleBody: 'Perform only a runtime-owned fixed Taskavel close-out. Never use model turns or arbitrary tools.',
+    task: { goal: 'Close accepted existing Taskavel cards.', taskavel: authorization } });
+  // Prove isolated native OAuth before the first mutation. The sync preflight
+  // uses no model turn and only projects connection/tool names.
+  const preflight = preflightNativeTaskavelSync({ project, binary, launch }, { invoke });
+  const binding = bindTaskavelAssignment({ project, contract: immutableContract, authorization: launch.authorization, names: preflight.projectNames });
+  const directory = privateDirectory(project, ['.agent-orchestra', 'tracker-receipts']);
+  const receiptPath = path.join(directory, `${reportId}.json`);
+  const identity = JSON.stringify({ reportId, contractHash: immutableContract.hash, projectId: binding.projectId, closeout });
+  let descriptor;
+  try {
+    descriptor = fs.openSync(receiptPath, fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_EXCL | NOFOLLOW, 0o600);
+    writeReceipt(descriptor, { identity, state: 'ambiguous' });
+  } catch (error) {
+    if (error?.code !== 'EEXIST') throw new Error('Native tracker close-out receipt is unavailable');
+    let prior; let existing;
+    try { existing = fs.openSync(receiptPath, fs.constants.O_RDONLY | NOFOLLOW); prior = receiptValue(existing); fs.closeSync(existing); } catch { if (existing !== undefined) fs.closeSync(existing); throw new Error('Native tracker close-out receipt is invalid'); }
+    if (prior?.identity !== identity || prior.state !== 'complete' || !prior.operation) {
+      throw new Error('Native tracker close-out has an ambiguous prior mutation');
+    }
+    return prior.operation;
+  }
+  try {
+    const checkedAt = now();
+    const operation = await executeTrackerCloseout({ contract: immutableContract, auditor: { verdict: 'DONE' }, reconciliation: { projectId: binding.projectId,
+      checkedAt, snapshots: [], requiredTasks: closeout.tasks.map(task => ({ taskId: String(task.taskId), doneColumnId: `name:${task.doneColumnName}`,
+        claimedComplete: true, lastUpdateAttemptAt: checkedAt, proof: { accepted: true, evidenceIds: ['runtime-closeout'] } })) }, closeout }, {
+      now,
+      call: (tool, arguments_) => operate({ binary, project, launch, operation: { tool, taskId: arguments_.task_id, arguments: arguments_ } }),
+    });
+    writeReceipt(descriptor, { identity, state: 'complete', operation });
+    return operation;
+  } catch { throw new Error('Native tracker close-out mutation acknowledgement is ambiguous'); }
+  finally { if (descriptor !== undefined) fs.closeSync(descriptor); }
 }

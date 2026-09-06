@@ -507,12 +507,31 @@ function stableJson(value) {
   return JSON.stringify(value);
 }
 
+function normalizedTrackerAuthorization(value) {
+  if (value == null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || Object.keys(value).some(key => !['projectName', 'taskIds', 'operations', 'externalWriteAuthorized'].includes(key))) {
+    throw new Error('Task contract tracker authorization is invalid');
+  }
+  const projectName = String(value.projectName || '').trim();
+  const taskIds = value.taskIds;
+  const operations = value.operations;
+  if (!projectName || projectName.length > 200 || /[\x00-\x1f\x7f-\x9f]/.test(projectName)
+    || !Array.isArray(taskIds) || !taskIds.length || taskIds.length > 32 || taskIds.some(id => !Number.isSafeInteger(id) || id < 1)
+    || new Set(taskIds).size !== taskIds.length || !Array.isArray(operations) || !operations.length || operations.length > 4
+    || new Set(operations).size !== operations.length || operations.some(operation => !['read', 'update-task', 'move-task', 'add-comment'].includes(operation))
+    || typeof value.externalWriteAuthorized !== 'boolean') throw new Error('Task contract tracker authorization is invalid');
+  if (operations.some(operation => operation !== 'read') && !value.externalWriteAuthorized) throw new Error('Task contract tracker writes require authorization');
+  return { projectName, taskIds: [...taskIds], operations: [...operations], externalWriteAuthorized: value.externalWriteAuthorized };
+}
+
 /** Create the immutable, provider-neutral scope authority for one outcome. */
 function createTaskContract(input = {}) {
   const goal = String(input.goal || '').trim();
   if (!goal) throw new Error('Task contract goal is required');
   const schemaVersion = input.schemaVersion == null ? 1 : input.schemaVersion;
   if (schemaVersion !== 1) throw new Error(`Unsupported task contract schema version: ${schemaVersion}`);
+  const trackerAuthorization = normalizedTrackerAuthorization(input.trackerAuthorization);
   const contract = {
     schemaVersion,
     goal,
@@ -527,6 +546,7 @@ function createTaskContract(input = {}) {
       dependenciesAllowed: Boolean(input.changeSurface?.dependenciesAllowed),
       architectureChangesAllowed: Boolean(input.changeSurface?.architectureChangesAllowed),
     },
+    ...(trackerAuthorization ? { trackerAuthorization } : {}),
   };
   if (contract.discoveryPolicy !== 'report-only') throw new Error('Task contract discoveryPolicy must be report-only');
   const hash = crypto.createHash('sha256').update(stableJson(contract)).digest('hex');
@@ -916,16 +936,22 @@ function runtimeManifest(tool, resolvedFactoryModels = {}, resolvedRoles = {}) {
       independentProofRequired: Boolean(factory.requireIndependentProofAfterWrites && (profile.writes || profile.externalWrites)),
     }];
   }));
-  const primaryReasoningEffort = reasoningForClass(tool, primaryModelClass);
+  // Codex has an explicit Lenka route. Other harnesses retain their existing
+  // coordination-class selection when they have no Lenka-specific candidate.
+  const primaryModel = tool === 'codex'
+    ? selectedAgentModel('lenka', resolvedRoles, resolvedFactoryModels) || resolvedFactoryModels[primaryModelClass] || null
+    : resolvedFactoryModels[primaryModelClass] || null;
+  const primaryReasoningEffort = selectedAgentReasoning('lenka', tool) || reasoningForClass(tool, primaryModelClass);
   return `${JSON.stringify({
     schemaVersion: 1,
+    routingRevision: 2,
     harness: tool,
     lifecycle: factory.lifecycle,
     unknownCapabilityPolicy: factory.unknownCapabilityPolicy,
     primary: {
       role: 'coordination',
       modelClass: primaryModelClass,
-      model: resolvedFactoryModels[primaryModelClass] || null,
+      model: primaryModel,
       ...(primaryReasoningEffort ? { reasoningEffort: primaryReasoningEffort } : {}),
     },
     scopeProtocol: {

@@ -172,3 +172,11 @@ dispatch gate. It does not reserve provider capacity or future worker slots.
 Native Solo workers cannot resume a prior session; requesting continuation
 readiness returns BLOCKED. Existing running sessions need restarting after an
 update to load the new bridge and instructions.
+
+## Readable Codex conductor
+
+The Codex MAIN process in Solo uses the documented app-server protocol through the same registered **Orkestar Worker** generic tool. It renders ordinary Lenka prose, concise state changes, interactive questions and approvals in the existing Solo panel; raw JSON, MCP arguments/results and reasoning are not shown by default. Recognizable credential patterns are redacted; this is not a guarantee against arbitrary secret content. `/details` is explicit opt-in and remains sanitized.
+
+Enter starts or steers a turn. `/stop` sends a turn interrupt. Approval and question responses are accepted only while the corresponding request is pending. A completed turn or worker response is never an acceptance verdict.
+
+Ctrl-C or `/stop` interrupts the active turn; a follow-up continues the same conversation. Steering is sent to the active turn, but the provider may finish an already-streaming response before acting on it. `/quit` exits. Secret-input requests are rejected before prompting because this plain terminal cannot safely hide typed credentials. Authenticate through the native CLI instead.

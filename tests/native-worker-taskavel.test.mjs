@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { nativeTaskavelArguments, validateTaskavelAuthorization, preflightNativeTaskavel, preflightNativeTaskavelSync, readNativeCodexTaskavel, readNativeCodexTaskavelSync, extractClaudeTaskavelEvidence, TASKAVEL_OPERATIONS } from '../native-worker-taskavel.mjs';
+import { nativeTaskavelArguments, validateTaskavelAuthorization, preflightNativeTaskavel, preflightNativeTaskavelSync, readNativeCodexTaskavel, readNativeCodexTaskavelSync, operateNativeCodexTaskavel, extractClaudeTaskavelEvidence, TASKAVEL_OPERATIONS } from '../native-worker-taskavel.mjs';
 
 const assignment = (harness = 'claude', overrides = {}) => ({ harness, model: 'verified-model', effort: 'low', roleBody: 'Task manager role.',
   task: { goal: 'Read the assigned task.', taskavel: { projectId: 1, taskIds: [2], operations: ['read'], externalWriteAuthorized: false, ...overrides } } });
@@ -169,6 +169,9 @@ function fakeCodexSpawn(launch, change = value => value) {
           const selector = launch.authorization.projectId === null ? { project_name: launch.authorization.projectName } : { project_id: 1 };
           assert.deepEqual(row.params, { server: 'taskavel', threadId: 'temporary-thread', tool: 'filter-tasks-tool', arguments: { ...selector, status: 'any', limit: 100 } });
           result = { content: [{ type: 'text', text: 'Filtered tasks (1):\n\n#1 Example — Example / In Progress [open]\n  id: 2 | https://taskavel.com/tasks/2' }], isError: false };
+        } else if (row.id === 8) {
+          assert.equal(row.params.tool, 'update-task-tool');
+          result = { content: [{ type: 'text', text: 'updated' }], isError: false };
         } else {
           assert.deepEqual(row.params, { server: 'taskavel', threadId: 'temporary-thread', tool: 'get-task-details-tool', arguments: { task_id: 2 } });
           result = { content: [{ type: 'text', text: details }], isError: false };
@@ -235,4 +238,18 @@ test('malformed project membership is rejected before the details RPC', async ()
     }),
   }), /preflight failed/);
   assert.equal(calls, 1);
+});
+
+test('fixed native operation uses isolated OAuth, membership and details before one whitelisted mutation', async () => {
+  const launch = nativeTaskavelArguments(assignment('codex', { operations: ['read', 'update-task'], externalWriteAuthorized: true }));
+  const calls = [];
+  const spawnProcess = fakeCodexSpawn(launch, (result, method) => {
+    if (method === 'mcpServer/tool/call') calls.push(result);
+    return result;
+  });
+  const result = await operateNativeCodexTaskavel({ binary: '/native/codex', project: '/project', launch,
+    operation: { tool: 'update-task-tool', taskId: 2, arguments: { task_id: 2, mark_complete: 'true' } } }, { spawnProcess });
+  assert.equal(result.taskId, 2); assert.equal(result.tool, 'update-task-tool');
+  await assert.rejects(operateNativeCodexTaskavel({ binary: '/native/codex', project: '/project', launch,
+    operation: { tool: 'move-task-to-column-tool', taskId: 2, arguments: { task_id: 2, column_name: 'Done' } } }, { spawnProcess }), /Invalid scoped/);
 });

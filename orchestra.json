@@ -161,6 +161,7 @@
           },
           "roles": {
             "product-designer": "high",
+            "lenka": "medium",
             "dev-lead": "medium",
             "dev-planner": "medium",
             "dev-builder": "medium",
@@ -174,6 +175,7 @@
           "strongest": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
         },
         "roles": {
+          "lenka": ["gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-sol"],
           "product-designer": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
           "dev-lead": ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol"],
           "dev-planner": ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol"],

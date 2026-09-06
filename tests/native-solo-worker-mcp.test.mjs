@@ -67,14 +67,26 @@ test('worker_ready derives project and harness from the server and accepts only 
     calls.push(input); return { status: 'ready', ready: true, continuationSupported: false };
   } });
   await ready(handle);
-  const response = await handle(call(2, 'worker_ready', { profiles: ['code-review', 'ui-verify'], requireBrowser: true, requireTaskavel: false,
+  const response = await handle(call(2, 'worker_ready', { profiles: ['code-review', 'ui-verify'], requireBrowser: true, requireTaskavel: true, taskavelProjectName: 'Coding Wisely',
     requireContinuation: false, plannedWorkerCount: 12 }));
   assert.equal(response.result.isError, false);
-  assert.deepEqual(calls, [{ project: root, harness: 'claude', profiles: ['code-review', 'ui-verify'], requireBrowser: true, requireTaskavel: false,
+  assert.deepEqual(calls, [{ project: root, harness: 'claude', profiles: ['code-review', 'ui-verify'], requireBrowser: true, requireTaskavel: true, taskavelProjectName: 'Coding Wisely',
     requireContinuation: false, plannedWorkerCount: 12 }]);
   assert.equal((await handle(call(3, 'worker_ready', { profiles: ['browser'] }))).error.code, -32602);
   assert.equal((await handle(call(4, 'worker_ready', { profiles: ['code-review'], plannedWorkerCount: 13 }))).error.code, -32602);
   assert.equal((await handle(call(5, 'worker_ready', { profiles: ['code-review'], project: '/other' }))).error.code, -32602);
+});
+
+test('worker_report accepts a zero-worker readiness failure but never a zero-worker DONE', async () => {
+  const root = project();
+  const handle = createWorkerMcpHandler({ project: root, harness: 'codex' }); await ready(handle);
+  const contract = JSON.parse((await handle(call(2, 'worker_contract', draft))).result.content[0].text);
+  const base = { reportId: '00000000-0000-4000-8000-000000000099', contract, workerRunIds: [], summary: 'Readiness prevented dispatch.',
+    workflow: 'development', designRequired: false, visualProofRequired: false, taskavel: 'not-requested', blockers: ['Taskavel readiness is blocked.'] };
+  const failed = await handle(call(3, 'worker_report', { ...base, status: 'FAILED' }));
+  assert.equal(failed.result.isError, false);
+  const done = await handle(call(4, 'worker_report', { ...base, status: 'DONE' }));
+  assert.equal(done.result.isError, true);
 });
 
 test('MCP Taskavel profile carries a closed authorization charter without accepting endpoint or model overrides', async () => {

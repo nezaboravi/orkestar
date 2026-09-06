@@ -6,9 +6,16 @@ import { collectNativeSoloWorkerResult } from './native-solo-worker.mjs';
 import { reportTrackerGate } from './report-tracker-gate.mjs';
 import { assessNativeReview } from './native-review-policy.mjs';
 import { MAX_WORKER_SESSIONS } from './orchestra-limits.mjs';
+import { validateTrackerCloseout } from './native-tracker-operations.mjs';
 
 const LIMIT = 262144;
 const id = value => typeof value === 'string' && /^[a-f0-9-]{36}$/.test(value);
+// A report ID is an immutable operation identity. Keep both successful and
+// ambiguous attempts: retrying an unknown remote write is less safe than an
+// explicit PARTIAL result. The native closeout adapter also persists its own
+// receipt for process-bound recovery.
+const closeoutReceipts = new Map();
+const MAX_CLOSEOUT_RECEIPTS = 64;
 const text = (value, max = 1000) => typeof value === 'string' && value.trim().length > 0 && value.length <= max && !/[\u0000-\u001f\u007f-\u009f]/.test(value);
 const strings = value => Array.isArray(value) && value.length > 0 && value.length <= 100 && Array.from(value).every(item => text(item));
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -77,13 +84,14 @@ const covers = (value, required) => Array.isArray(value) && value.length <= MAX_
   && new Set(value).size === value.length && required.every(runId => value.includes(runId));
 
 /** Recollect real worker output. Supplied tracker packet is validated, not network-authenticated. */
-export async function finalizeNativeWorkerReport({ project, harness, report }, { collect = collectNativeSoloWorkerResult, reconcileTracker, now = Date.now } = {}) {
-  if (!['codex', 'claude'].includes(harness) || !report || !id(report.reportId) || !strings(report.workerRunIds)
-    || Object.keys(report).some(key => !['reportId', 'contract', 'workerRunIds', 'status', 'summary', 'workflow', 'designRequired', 'visualProofRequired', 'taskavel', 'trackerReconciliation', 'blockers'].includes(key))
+export async function finalizeNativeWorkerReport({ project, harness, report }, { collect = collectNativeSoloWorkerResult, reconcileTracker, applyTrackerCloseout, now = Date.now } = {}) {
+  if (!['codex', 'claude'].includes(harness) || !report || !id(report.reportId) || !Array.isArray(report.workerRunIds)
+    || Object.keys(report).some(key => !['reportId', 'contract', 'workerRunIds', 'status', 'summary', 'workflow', 'designRequired', 'visualProofRequired', 'taskavel', 'trackerReconciliation', 'trackerCloseout', 'blockers'].includes(key))
     || report.workerRunIds.length > MAX_WORKER_SESSIONS || !report.workerRunIds.every(id) || new Set(report.workerRunIds).size !== report.workerRunIds.length
     || !['DONE', 'PARTIAL', 'FAILED'].includes(report.status) || !['development', 'other'].includes(report.workflow)
     || !text(report.summary, 4000) || typeof report.designRequired !== 'boolean' || typeof report.visualProofRequired !== 'boolean'
-    || !Array.isArray(report.blockers) || report.blockers.length > 100 || !Array.from(report.blockers).every(item => text(item))) throw new Error('Invalid native report input');
+    || !Array.isArray(report.blockers) || report.blockers.length > 100 || !Array.from(report.blockers).every(item => text(item))
+    || (report.workerRunIds.length === 0 && (report.status === 'DONE' || report.blockers.length === 0))) throw new Error('Invalid native report input');
   const contract = validateTaskContract(report.contract);
   const runs = directory(project, ['.agent-orchestra', 'runs']);
   const contractDirectory = directory(project, ['.agent-orchestra', 'runs', contract.id]);
@@ -148,9 +156,13 @@ export async function finalizeNativeWorkerReport({ project, harness, report }, {
     // readback gate below prevents an audit -> closure -> audit cycle.
     const auditedRuns = workers.filter(other => other.runId !== worker.runId
       && other.role !== 'dev-auditor' && !trackerClosures.has(other.runId)).map(other => other.runId);
+    // An auditor may only decide the immutable contract requirements. Operational
+    // tracker closure is a later runtime-owned reconciliation, never LD-style
+    // acceptance criterion that can create an audit/closure/audit cycle.
     return verdict?.verdict === 'DONE' && review && verdict.reviewRunId === review.runId
       && covers(verdict.reviewedRunIds, auditedRuns) && after(worker, auditedRuns)
       && Array.isArray(verdict.proof) && verdict.proof.length <= 100
+      && verdict.proof.every(proof => contract.required.some(requirement => requirement.id === proof?.criterionId))
       && contract.required.every(requirement => verdict.proof.some(proof => proof?.criterionId === requirement.id
         && proof.result === 'passed' && text(proof.method) && strings(proof.evidence)));
   });
@@ -158,6 +170,37 @@ export async function finalizeNativeWorkerReport({ project, harness, report }, {
   if (builders.some(worker => worker.readOnly !== false)) blockers.push('Builder write envelope is not verified.');
   let trackerReconciliation = null;
   let trackerReport = report;
+  if (report.trackerCloseout !== undefined) {
+    try {
+      // Closing an existing card is a bounded runtime action after acceptance,
+      // never a model worker or an additional auditor. The adapter owns OAuth
+      // and must still provide a fresh readback below.
+      if (!auditor || report.status !== 'DONE' || blockers.length || report.taskavel !== 'synced' || !report.trackerReconciliation || typeof applyTrackerCloseout !== 'function') throw new Error();
+      const closeout = validateTrackerCloseout({ contract, auditor: parseVerdict(auditor), reconciliation: report.trackerReconciliation,
+        closeout: report.trackerCloseout }, { now: now() });
+      const identity = `${project}\u0000${harness}\u0000${report.reportId}\u0000${contract.hash}\u0000${JSON.stringify(closeout)}`;
+      let pending = closeoutReceipts.get(identity);
+      if (!pending) {
+        pending = Promise.resolve().then(() => applyTrackerCloseout({ project, harness, contract, closeout, reportId: report.reportId }));
+        closeoutReceipts.set(identity, pending);
+        pending.then(() => {
+          // Durable native receipts are the replay authority. This tiny map
+          // only coalesces simultaneous reports in one process.
+          while (closeoutReceipts.size > MAX_CLOSEOUT_RECEIPTS) closeoutReceipts.delete(closeoutReceipts.keys().next().value);
+        }, () => closeoutReceipts.delete(identity));
+      }
+      const operation = await pending;
+      if (!operation || operation.projectId !== report.trackerReconciliation.projectId || !Array.isArray(operation.receipts)
+        || operation.receipts.length !== closeout.tasks.length) throw new Error();
+      const attempted = new Map(operation.receipts.map(receipt => [String(receipt?.taskId), receipt?.completedAt]));
+      if (attempted.size !== closeout.tasks.length || [...attempted.values()].some(value => !count(value))) throw new Error();
+      trackerReport = { ...trackerReport, trackerReconciliation: { ...trackerReport.trackerReconciliation,
+        requiredTasks: trackerReport.trackerReconciliation.requiredTasks.map(task => ({ ...task,
+          lastUpdateAttemptAt: attempted.get(String(task.taskId)) ?? task.lastUpdateAttemptAt })) } };
+    } catch {
+      blockers.push('Authorized Taskavel close-out could not be completed with a bounded runtime operation.');
+    }
+  }
   if (report.taskavel === 'synced') {
     // Never accept model-supplied snapshots as authenticated server observations.
     // Only a runtime-owned collector can replace this packet's observations.
@@ -166,11 +209,11 @@ export async function finalizeNativeWorkerReport({ project, harness, report }, {
       const { projectId, requiredTasks } = report.trackerReconciliation;
       const observed = await reconcileTracker({ projectId, requiredTasks: structuredClone(requiredTasks) });
       if (!observed || observed.projectId !== projectId) throw new Error('Tracker scope mismatch');
-      trackerReport = { ...report, trackerReconciliation: { ...report.trackerReconciliation,
+      trackerReport = { ...trackerReport, trackerReconciliation: { ...trackerReport.trackerReconciliation,
         checkedAt: observed.checkedAt, snapshots: observed.snapshots } };
     } catch {
       blockers.push('Authenticated Taskavel readback is unavailable; supplied snapshots cannot establish synchronization.');
-      trackerReport = { ...report, trackerReconciliation: undefined };
+      trackerReport = { ...trackerReport, trackerReconciliation: undefined };
     }
   }
   try { trackerReconciliation = reportTrackerGate({ ...trackerReport, status: 'DONE' }, now()); }

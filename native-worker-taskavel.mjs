@@ -129,6 +129,22 @@ export async function readNativeCodexTaskavel({ binary, project, launch, taskId 
   return preflightCodexTaskavel({ binary, project, launch, spawnProcess, timeoutMs, taskId });
 }
 
+/** A no-model, fixed Taskavel mutation. It reuses the isolated app-server OAuth
+ * preflight and proves task membership/details before invoking one whitelisted
+ * tool. Callers still need an independent fresh read afterwards. */
+export async function operateNativeCodexTaskavel({ binary, project, launch, operation }, { spawnProcess = spawn, timeoutMs = 30000 } = {}) {
+  if (!constructedLaunches.has(launch) || launch.harness !== 'codex' || !operation || typeof operation !== 'object') throw new Error('Invalid scoped Taskavel operation');
+  const taskId = operation.taskId;
+  const allowed = operation.tool === 'move-task-to-column-tool'
+    && Object.keys(operation.arguments ?? {}).length === 2 && operation.arguments.task_id === taskId && plain(operation.arguments.column_name, 200)
+    && launch.authorization.operations.includes('move-task')
+    || operation.tool === 'update-task-tool'
+      && Object.keys(operation.arguments ?? {}).length === 2 && operation.arguments.task_id === taskId && operation.arguments.mark_complete === 'true'
+      && launch.authorization.operations.includes('update-task');
+  if (!id(taskId) || !launch.authorization.taskIds.includes(taskId) || !allowed) throw new Error('Invalid scoped Taskavel operation');
+  return preflightCodexTaskavel({ binary, project, launch, spawnProcess, timeoutMs, taskId, operation });
+}
+
 function taskDetailsReadback(content, taskId) {
   const field = label => {
     const matches = [...content.matchAll(new RegExp(`^${label}: ([^\\r\\n]+)$`, 'gm'))];
@@ -229,7 +245,7 @@ export async function preflightNativeTaskavel({ binary, project, launch }, { spa
   });
 }
 
-async function preflightCodexTaskavel({ binary, project, launch, spawnProcess, timeoutMs, taskId }) {
+async function preflightCodexTaskavel({ binary, project, launch, spawnProcess, timeoutMs, taskId, operation }) {
   const deadline = Date.now() + timeoutMs;
   const overrides = launch.args.flatMap((value, index) => value === '-c' ? ['-c', launch.args[index + 1]] : []);
   const run = (args, inspect) => new Promise((resolve, reject) => {
@@ -274,7 +290,7 @@ async function preflightCodexTaskavel({ binary, project, launch, spawnProcess, t
   const disabled = names.filter(name => name !== 'taskavel').flatMap(name => ['-c', `mcp_servers.${name}.enabled=false`]);
   let probeThreadId, startedAt, membershipResponse, projectNames;
   const afterProjects = (send, finish) => {
-    if (taskId === undefined) return finish(Object.freeze({ name: 'taskavel', status: 'connected', enabledTools: launch.enabledTools, ...(projectNames ? { projectNames } : {}) }));
+      if (taskId === undefined) return finish(Object.freeze({ name: 'taskavel', status: 'connected', enabledTools: launch.enabledTools, ...(projectNames ? { projectNames } : {}) }));
     startedAt = Date.now();
     const selector = launch.authorization.projectId === null ? { project_name: launch.authorization.projectName } : { project_id: launch.authorization.projectId };
     send({ id: 5, method: 'mcpServer/tool/call', params: { server: 'taskavel', threadId: probeThreadId,
@@ -315,7 +331,7 @@ async function preflightCodexTaskavel({ binary, project, launch, spawnProcess, t
       projectNames = taskavelProjectNames(row.result);
       assertUniqueTaskavelProject(projectNames, launch.authorization.projectName, launch.authorization.operations.includes('create-project'));
       afterProjects(send, finish);
-    } else if ((row.id === 5 || row.id === 6) && taskId !== undefined) {
+      } else if ((row.id === 5 || row.id === 6 || row.id === 8) && taskId !== undefined) {
       const result = row.result;
       if (result?.isError === true || !Array.isArray(result?.content) || !result.content.length
         || result.content.some(block => block.type !== 'text' || typeof block.text !== 'string')) throw new Error();
@@ -326,12 +342,18 @@ async function preflightCodexTaskavel({ binary, project, launch, spawnProcess, t
           tool: 'get-task-details-tool', arguments: { task_id: taskId } } });
         return;
       }
+      if (row.id === 8) return finish({ taskId, tool: operation.tool, completedAt: Date.now() });
       if (!membershipResponse) throw new Error();
       const completedAt = Date.now();
       const normalized = normalizeTaskavelReadback({ taskId, projectId: launch.authorization.projectId, projectName: launch.authorization.projectName,
         details: result, membership: membershipResponse, readAt: completedAt });
       if (!normalized.snapshot || !normalized.observed || normalized.blockers.length) throw new Error();
       const { readAt, ...readback } = normalized.observed;
+      if (operation) {
+        send({ id: 8, method: 'mcpServer/tool/call', params: { server: 'taskavel', threadId: probeThreadId,
+          tool: operation.tool, arguments: operation.arguments } });
+        return;
+      }
       finish({ startedAt, completedAt, readback, snapshot: normalized.snapshot });
     }
   });

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { validateTaskContract } from './orchestra.mjs';
 
 const validName = value => typeof value === 'string' && value === value.trim() && value.length > 0 && value.length <= 200 && !/[\x00-\x1f\x7f]/.test(value);
 export function taskavelProjectNames(response) {
@@ -42,15 +43,32 @@ export function readTaskavelBinding(project) {
   return binding;
 }
 
-/** Native authenticated preflight supplies names, never the model. First binding
- * is only for explicit new-project creation; existing projects are never guessed.
- * This checks launch scope, not arguments subsequently emitted by a native model.
+function authorizedExistingCloseout(contract, authorization) {
+  const bound = contract?.trackerAuthorization;
+  if (!bound || authorization.externalWriteAuthorized !== true || !Array.isArray(authorization.taskIds)
+    || !authorization.taskIds.length || authorization.taskIds.length > 32
+    || authorization.taskIds.some(id => !Number.isSafeInteger(id) || id < 1)
+    || new Set(authorization.taskIds).size !== authorization.taskIds.length
+    || !Array.isArray(authorization.operations) || authorization.operations.length !== 3
+    || new Set(authorization.operations).size !== 3
+    || !['read', 'update-task', 'move-task'].every(operation => authorization.operations.includes(operation))) return false;
+  return bound.projectName === authorization.projectName && bound.externalWriteAuthorized === true
+    && Array.isArray(bound.taskIds) && Array.isArray(bound.operations)
+    && JSON.stringify([...bound.taskIds].sort((a, b) => a - b)) === JSON.stringify([...authorization.taskIds].sort((a, b) => a - b))
+    && JSON.stringify([...bound.operations].sort()) === JSON.stringify([...authorization.operations].sort());
+}
+
+/** Native authenticated preflight supplies names, never the model. A first
+ * existing-project binding is allowed only for an exact immutable close-out
+ * authorization; ordinary Taskavel assignments still require project creation.
  */
 export function bindTaskavelAssignment({ project, contract, authorization, names }) {
-  if (!contract?.id || !contract?.hash || authorization.projectId !== null || !validName(authorization.projectName)) throw new Error('Taskavel requires an explicit name-bound project');
+  const immutableContract = validateTaskContract(contract);
+  if (authorization.projectId !== null || !validName(authorization.projectName)) throw new Error('Taskavel requires an explicit name-bound project');
   const creating = authorization.operations.includes('create-project');
+  const existingCloseout = !creating && authorizedExistingCloseout(immutableContract, authorization);
   assertUniqueTaskavelProject(names, authorization.projectName, creating);
-  const expected = { schemaVersion: 1, workspace: project, contractId: contract.id, contractHash: contract.hash,
+  const expected = { schemaVersion: 1, workspace: project, contractId: immutableContract.id, contractHash: immutableContract.hash,
     projectName: authorization.projectName, projectId: `name:${authorization.projectName}` };
   try {
     const current = readTaskavelBinding(project);
@@ -58,8 +76,15 @@ export function bindTaskavelAssignment({ project, contract, authorization, names
     return current;
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
-    if (!creating) throw new Error('Taskavel project must be created and bound before task writes');
-    fs.writeFileSync(bindingFile(project), JSON.stringify(expected), { flag: 'wx', mode: 0o600 });
-    return expected;
+    if (!creating && !existingCloseout) throw new Error('Taskavel project must be created and bound before task writes');
+    try {
+      fs.writeFileSync(bindingFile(project), JSON.stringify(expected), { flag: 'wx', mode: 0o600 });
+      return expected;
+    } catch (writeError) {
+      if (writeError?.code !== 'EEXIST') throw writeError;
+      const current = readTaskavelBinding(project);
+      if (['schemaVersion', 'workspace', 'projectName', 'projectId'].some(key => current[key] !== expected[key])) throw new Error('Taskavel project binding mismatch');
+      return current;
+    }
   }
 }

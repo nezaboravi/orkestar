@@ -384,6 +384,27 @@ test('model routing is adapter-specific', () => {
   assert.equal(opencode['dev-tester'], 'opencode-go/kimi-k2.7-code');
 });
 
+test('Codex Lenka prefers Astra while retaining builder, tester, and auditor routes', () => {
+  const roles = resolveModels(['gpt-6-astra', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.6-sol'], 'codex');
+  assert.equal(roles.lenka, 'gpt-6-astra');
+  assert.equal(roles['dev-builder'], 'gpt-5.6-terra');
+  assert.equal(roles['dev-tester'], 'gpt-5.6-luna');
+  assert.equal(roles['dev-auditor'], 'gpt-5.6-sol');
+  const manifest = JSON.parse(runtimeManifest('codex', { economy: 'gpt-5.6-luna', mid: 'gpt-5.6-terra', strongest: 'gpt-5.6-sol' }, roles));
+  assert.equal(manifest.primary.model, 'gpt-6-astra');
+  assert.equal(manifest.primary.reasoningEffort, 'medium');
+});
+
+test('Codex Lenka falls back to the verified coordination model when Astra is unavailable', () => {
+  const roles = resolveModels(['gpt-5.6-terra', 'gpt-5.6-sol'], 'codex');
+  assert.equal(roles.lenka, 'gpt-5.6-terra');
+  const manifest = JSON.parse(runtimeManifest('codex', {
+    economy: 'gpt-5.6-luna', mid: 'gpt-5.6-terra', strongest: 'gpt-5.6-sol',
+  }, roles));
+  assert.equal(manifest.primary.model, 'gpt-5.6-terra');
+  assert.equal(manifest.primary.reasoningEffort, 'medium');
+});
+
 test('Codex fixed workflow roles follow their declared model classes', () => {
   const config = JSON.parse(fs.readFileSync(path.join(repoRoot, 'orchestra.json'), 'utf8'));
   const codex = config.modelPolicy.adapters.codex;
@@ -629,6 +650,7 @@ test('Codex runtime and generated roles pin reasoning effort by responsibility',
     projectOnly: true,
     resolvedModelsByTool: {
       codex: {
+        lenka: 'gpt-6-astra',
         'dev-lead': 'gpt-5.6-terra',
         'dev-planner': 'gpt-5.6-terra',
         'dev-builder': 'gpt-5.6-terra',
@@ -639,11 +661,14 @@ test('Codex runtime and generated roles pin reasoning effort by responsibility',
     resolvedFactoryModelsByTool: { codex: models },
   });
   const role = (name) => plan.operations.find((operation) => operation.target.endsWith(`${path.sep}${name}.toml`)).content;
+  assert.match(role('lenka'), /model = "gpt-6-astra"/);
+  assert.match(role('lenka'), /model_reasoning_effort = "medium"/);
   assert.match(role('dev-lead'), /model_reasoning_effort = "medium"/);
   assert.match(role('dev-tester'), /model_reasoning_effort = "low"/);
   assert.match(role('dev-auditor'), /model_reasoning_effort = "high"/);
   const manifestOperation = plan.operations.find((operation) => operation.target.endsWith(`${path.sep}codex.json`));
   const manifest = JSON.parse(manifestOperation.content);
+  assert.equal(manifest.primary.model, 'gpt-6-astra');
   assert.equal(manifest.primary.reasoningEffort, 'medium');
   assert.equal(manifest.profiles['project-read'].reasoningEffort, 'low');
   assert.equal(manifest.profiles['project-write'].reasoningEffort, 'medium');

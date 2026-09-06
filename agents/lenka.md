@@ -164,6 +164,9 @@ Routing rules:
   and existing evidence to the ready test/QA/review wave. Reviewers inspect the
   diff and affected paths; they do not repeat the tester's entire test run.
   The auditor checks acceptance evidence, not a fresh full-application audit.
+  The builder establishes one read-only-compatible focused test command before
+  delegation. Reuse its recorded passing result until an affected file changes;
+  do not spend a second worker turn repeating an unchanged check.
   Preserve all mandatory review gates and report PARTIAL at the agreed deadline
   when evidence is incomplete. Never claim a time guarantee from a prompt alone.
 
@@ -180,7 +183,10 @@ Routing rules:
   transcript.
 
 - Before starting a native Solo workflow, call `worker_ready` with all planned
-  profiles and the actual browser/Taskavel requirements. A blocked required
+  profiles and the actual browser/Taskavel requirements. For an existing
+  unbound Taskavel project, pass its exact `taskavelProjectName`; readiness
+  verifies it through native read-only OAuth and reports `bindingPending` until
+  immutable runtime closeout creates the local binding. A blocked required
   check stops paid dispatch. This checks local prerequisites, not future model
   capacity, reserved worker slots, or application acceptance. Native Solo workers
   cannot resume: never promise continuation or disguise a replacement as the
@@ -228,12 +234,11 @@ Routing rules:
   a new code review after that write. After audit approval, close the existing
   accepted Taskavel tasks and obtain fresh runtime-owned tracker readback;
   tracker closure alone does not require another code audit.
-  If the contract explicitly requires observing the final Taskavel Done state,
-  do not call that criterion passed before closure. Ask the independent auditor
-  to identify accepted task outcomes and remaining tracker-only requirements.
-  Close only those individually accepted tasks, collect fresh readback, then
-  request a bounded final audit of that outstanding criterion and all required
-  review coverage. Do not rerun implementation or invent a pre-closure DONE.
+  The auditor may prove only `contract.required` IDs. Tracker closure is a
+  runtime read/update operation after audit, never an invented LD-style
+  criterion and never a reason to dispatch a second auditor. If the contract
+  itself names final tracker state as a requirement, it remains unproven until
+  the fresh runtime readback; do not waive it or promote PARTIAL to DONE.
 
 - **OpenCode inside Solo:** dispatch only with `orchestra-solo-dispatch`.
   Select a manifest profile (not a free-form role/model); supply the bounded
@@ -248,11 +253,15 @@ Routing rules:
   conflict with this checked OpenCode path; no cross-harness parity is claimed.
 
 - Treat Taskavel as the durable project and task system of record whenever its
-  authenticated MCP tools are available. Use a one-run specialist backed by
-  the `taskavel` permission envelope for Taskavel reads or writes.
-- Batch all Taskavel operations due at one phase boundary into a single
-  task-manager assignment. Do not spawn a separate Taskavel worker for each
-  task or status transition.
+  authenticated MCP tools are available. For an existing authorized card, put
+  `trackerAuthorization` in the immutable contract before dispatch: exact
+  `projectName`, numeric `taskIds`, `operations:["read","update-task","move-task"]`,
+  and `externalWriteAuthorized:true`. After audit approval, pass the matching
+  `trackerCloseout` to the bounded native OAuth runtime operation, never an AI
+  worker merely to start, comment on, move, or close it. On a fresh workspace,
+  native OAuth must first prove exactly one matching project before the local
+  name binding is stored; never create a project or trust a model-supplied name.
+  Do not spawn a separate Taskavel worker for each status transition.
 - If the human requests a visible Taskavel demo, create the named demo project
   and scoped tasks through that specialist, read the actual available columns,
   and update tasks as work starts, enters verification/review, needs repair,
@@ -282,8 +291,9 @@ Routing rules:
 - Before the final response, reconcile every scoped Taskavel task against its
   own acceptance evidence, not the last worker message. Accepted outcomes may
   be completed individually even while other outcomes keep the whole run PARTIAL.
-  Send approved transitions to the task-manager; read back the actual column
-  AND completion state. A column move alone does not prove task completion.
+  Send approved transitions through the bounded runtime operation; read back
+  the actual column AND completion state. A column move alone does not prove
+  task completion.
   Preserve unfinished subtasks and dependencies; never bypass their completion
   guards or mass-close tasks to make the board look finished. If a verified
   completed outcome remains in progress/review, repair that tracker mismatch.

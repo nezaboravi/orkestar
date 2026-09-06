@@ -145,6 +145,8 @@ export async function inspectNativeWorkerReadiness(input, deps = {}) {
     for (const key of ['requireBrowser', 'requireTaskavel', 'requireContinuation']) {
       if (input[key] !== undefined && typeof input[key] !== 'boolean') throw new Error(`${key} must be a boolean`);
     }
+    if (input.taskavelProjectName !== undefined && !safeText(input.taskavelProjectName, 200)) throw new Error('taskavelProjectName must be a bounded project name');
+    if (input.taskavelProjectName !== undefined && input.requireTaskavel !== true) throw new Error('taskavelProjectName requires requireTaskavel:true');
     if (input.plannedWorkerCount !== undefined && (!Number.isSafeInteger(input.plannedWorkerCount) || input.plannedWorkerCount < 0 || input.plannedWorkerCount > 12)) throw new Error('plannedWorkerCount must be a whole number from 0 to 12');
   } catch (error) {
     checks.push({ name: 'request', status: 'BLOCKED', message: error instanceof Error ? error.message : 'Invalid readiness request' });
@@ -177,13 +179,22 @@ export async function inspectNativeWorkerReadiness(input, deps = {}) {
     if (!runtimeResult.value || !solo.binary) throw new Error('Taskavel readiness requires a verified runtime and native worker tool');
     const route = runtimeResult.value.profiles?.taskavel;
     if (!route || route.permissionEnvelope !== 'task-manager' || !safeText(route.model) || !['low', 'medium', 'high'].includes(route.reasoningEffort)) throw new Error('Taskavel runtime route is invalid');
-    const binding = readTaskavelBinding(project);
+    let binding, projectName, bindingPending = false;
+    try {
+      binding = readTaskavelBinding(project);
+      if (input.taskavelProjectName !== undefined && input.taskavelProjectName !== binding.projectName) throw new Error('Requested Taskavel project name conflicts with the workspace binding');
+      projectName = binding.projectName;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      if (input.taskavelProjectName === undefined) throw new Error('Taskavel workspace binding is missing; provide taskavelProjectName for native read-only verification');
+      projectName = input.taskavelProjectName; bindingPending = true;
+    }
     const launch = nativeTaskavelArguments({ harness: input.harness, model: route.model, effort: route.reasoningEffort,
       roleBody: 'Read only the explicitly assigned Taskavel tasks. Never mutate external state.',
-      task: { goal: 'Prove native Taskavel readiness without modifying external state.', taskavel: { projectId: null, projectName: binding.projectName, taskIds: [], operations: ['read'], externalWriteAuthorized: false } } });
+      task: { goal: 'Prove native Taskavel readiness without modifying external state.', taskavel: { projectId: null, projectName, taskIds: [], operations: ['read'], externalWriteAuthorized: false } } });
     const preflight = (deps.preflightTaskavel ?? preflightNativeTaskavelSync)({ binary: solo.binary, project, launch }, { invoke: deps.invoke ?? spawnSync });
     if (preflight?.status !== 'connected') throw new Error('Native Taskavel OAuth readiness was not proven');
-    return { binding: '.agent-orchestra/runtime/taskavel-binding.json', status: 'connected' };
+    return { status: 'connected', verifiedProjectName: projectName, binding: bindingPending ? 'pending' : '.agent-orchestra/runtime/taskavel-binding.json', bindingPending };
   }, checks);
   if (input.requireContinuation === true) checks.push({ name: 'continuation', status: 'BLOCKED', message: 'Native Solo workers do not support continuation.' });
   const blocked = checks.some(item => item.status === 'BLOCKED');

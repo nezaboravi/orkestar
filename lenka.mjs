@@ -11,7 +11,7 @@ import { herdrSessionName } from './session-name.mjs';
 import { launcherArgs } from './harness-launcher.mjs';
 import { findSoloCli, launchInSolo } from './solo-workspace.mjs';
 import { prepareNativeSolo } from './native-solo-setup.mjs';
-import { refreshProjectRuntime } from './project-runtime-refresh.mjs';
+import { refreshProjectRuntime, RuntimeRoutingRevalidationError } from './project-runtime-refresh.mjs';
 import { bindSoloObserver } from './native-solo-mirror.mjs';
 import {
   commandForHarness,
@@ -362,8 +362,9 @@ async function launchInstalledRuntime(runtime, options, dependencies = {}) {
     const native = await (dependencies.prepareNativeSolo ?? prepareNativeSolo)({ project: fs.realpathSync(options.project), harness: runtime.harness,
       nodeBinary: process.execPath, sourceRoot: repoRoot });
     const observation = native?.observer;
-    const launched = (dependencies.launchInSolo ?? launchInSolo)(runtime, options, { locate: executable, launcherArgs,
-      bindObserver: observation ? bindSoloObserver : null });
+    const soloDependencies = { locate: executable, bindObserver: observation ? bindSoloObserver : null };
+    if (runtime.harness !== 'codex') soloDependencies.launcherArgs = launcherArgs;
+    const launched = (dependencies.launchInSolo ?? launchInSolo)(runtime, options, soloDependencies);
     console.log('Lenka is ready.');
     console.log(`Workspace: Solo (${launched.project.name})`);
     console.log(`Agent: ${launched.process.name} (${runtime.harness})`);
@@ -415,18 +416,23 @@ async function launchInstalledRuntime(runtime, options, dependencies = {}) {
   return run(herdr, ['--session', session], { cwd: options.project, env });
 }
 
-async function up(options) {
+async function up(options, dependencies = {}) {
+  const loadSavedPreferences = dependencies.loadPreferences ?? loadPreferences;
+  const ensureAuthentication = dependencies.ensureHarnessAuthentication ?? ensureHarnessAuthentication;
+  const selectRuntime = dependencies.selectInstalledRuntime ?? selectInstalledRuntime;
+  const launchRuntime = dependencies.launchInstalledRuntime ?? launchInstalledRuntime;
+  const execute = dependencies.run ?? run;
   if (!fs.existsSync(options.project) || !fs.statSync(options.project).isDirectory()) {
     throw new Error(`project directory does not exist: ${options.project}`);
   }
-  let preferences = loadPreferences(homeDirectory());
+  let preferences = loadSavedPreferences(homeDirectory());
   if (needsFirstRunSetup(options, preferences)) {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
       throw new Error('No saved Lenka setup exists. Run `lenka setup` in an interactive terminal, or choose explicitly, for example: lenka up codex --direct');
     }
     const setupStatus = await setup(options, { continueToLaunch: true });
     if (setupStatus !== 0) return setupStatus;
-    preferences = loadPreferences(homeDirectory());
+    preferences = loadSavedPreferences(homeDirectory());
     if (!preferences) throw new Error('Lenka setup finished without saving preferences');
   }
   if (!options.workspaceExplicit && preferences?.workspace) {
@@ -434,12 +440,18 @@ async function up(options) {
     options.herdr = preferences.workspace === 'herdr';
   }
   const harness = options.ask ? await chooseHarness() : (options.harness || preferences?.harness || 'auto');
-  await ensureHarnessAuthentication(harness, options.project);
-  const installed = selectInstalledRuntime(options.project, harness);
+  await ensureAuthentication(harness, options.project);
+  const installed = selectRuntime(options.project, harness);
   if (installed) {
-    const launched = await launchInstalledRuntime(installed, options);
-    if (launched !== null) return launched;
-    console.log('\nHerdr is not ready on this machine; completing its one-time setup.');
+    try {
+      const launched = await launchRuntime(installed, options);
+      if (launched !== null) return launched;
+      console.log('\nHerdr is not ready on this machine; completing its one-time setup.');
+    } catch (error) {
+      if (!(error instanceof RuntimeRoutingRevalidationError)
+        && error?.code !== 'RUNTIME_ROUTING_REVALIDATION_REQUIRED') throw error;
+      console.log('\nThe installed model route changed; verifying the current route.');
+    }
   }
   console.log('\nLenka is assembling the orchestra…');
   console.log(`Project: ${options.project}`);
@@ -448,20 +460,20 @@ async function up(options) {
     const windows = ['-Project', options.project, '-ProjectOnly', '-Conflict', options.conflict, '-Harness', harness];
     windows.push('-NoLaunch');
     if (options.workspace === 'herdr') windows.push('-UseHerdr');
-    const installedStatus = run('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repoRoot, 'bootstrap.ps1'), ...windows]);
+    const installedStatus = execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repoRoot, 'bootstrap.ps1'), ...windows]);
     if (installedStatus !== 0 || options.noLaunch) return installedStatus;
-    const runtime = selectInstalledRuntime(options.project, harness);
+    const runtime = selectRuntime(options.project, harness);
     if (!runtime) throw new Error(`no verified ${harness} runtime exists after installation`);
-    return launchInstalledRuntime(runtime, options);
+    return launchRuntime(runtime, options);
   }
   const common = ['--project', options.project, '--project-only', '--conflict', options.conflict, '--harness', harness];
   common.push('--no-launch');
   if (options.workspace === 'herdr') common.push('--herdr');
-  const installedStatus = run('sh', [path.join(repoRoot, 'bootstrap.sh'), ...common]);
+  const installedStatus = execute('sh', [path.join(repoRoot, 'bootstrap.sh'), ...common]);
   if (installedStatus !== 0 || options.noLaunch) return installedStatus;
-  const runtime = selectInstalledRuntime(options.project, harness);
+  const runtime = selectRuntime(options.project, harness);
   if (!runtime) throw new Error(`no verified ${harness} runtime exists after installation`);
-  return launchInstalledRuntime(runtime, options);
+  return launchRuntime(runtime, options);
 }
 
 function needsFirstRunSetup(options, preferences) {
@@ -681,4 +693,4 @@ if (invokedFile === fileURLToPath(import.meta.url)) {
   }
 }
 
-export { ensureHarnessAuthentication, launchInstalledRuntime, main, manifests, needsFirstRunSetup, parse, selectInstalledRuntime, setup, shouldOpenHerdr };
+export { ensureHarnessAuthentication, launchInstalledRuntime, main, manifests, needsFirstRunSetup, parse, selectInstalledRuntime, setup, shouldOpenHerdr, up };
