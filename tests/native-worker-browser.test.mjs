@@ -101,7 +101,7 @@ test('screenshot output is a private project evidence directory', () => {
   const project = fixture(); installed(project);
   const evidence = browserScreenshotDirectory(project);
   assert.equal(evidence, path.join(project, '.agent-orchestra/browser/evidence'));
-  assert.equal(fs.statSync(evidence).mode & 0o077, 0);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(evidence).mode & 0o077, 0);
   assert.throws(() => browserScreenshotDirectory('relative'), /canonical/);
 });
 

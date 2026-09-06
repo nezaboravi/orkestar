@@ -233,7 +233,7 @@ export async function probeNativeWorkerBrowser({ project }, { resolve = resolveN
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 8 || stat.size > 16 * 1024 * 1024) browserProbeError('screenshot artifact is unsafe or out of bounds');
     const bytes = fs.readFileSync(artifact);
     if (!bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) browserProbeError('screenshot artifact is not a PNG');
-    return { ready: true, artifact: { relativePath: path.relative(canonicalProject, artifact), sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }, checkedAt: now() };
+    return { ready: true, artifact: { relativePath: path.relative(canonicalProject, artifact).split(path.sep).join('/'), sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }, checkedAt: now() };
   } finally { clearTimeout(timer); close(); }
 }
 

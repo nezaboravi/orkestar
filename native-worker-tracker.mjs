@@ -51,6 +51,22 @@ function writeReceipt(fd, value) {
   if (Buffer.byteLength(content) > LIMIT || !fs.fstatSync(fd).isFile()) throw new Error('Invalid tracker receipt');
   fs.ftruncateSync(fd, 0); fs.writeSync(fd, content, 0, 'utf8'); fs.fsyncSync(fd);
 }
+function assertSafeReceiptPath(receiptPath) {
+  try {
+    const stat = fs.lstatSync(receiptPath);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('Invalid tracker receipt');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return;
+    throw error;
+  }
+}
+function assertOpenedReceiptPath(receiptPath, descriptor) {
+  const current = fs.lstatSync(receiptPath, { bigint: true });
+  const opened = fs.fstatSync(descriptor, { bigint: true });
+  if (!current.isFile() || current.isSymbolicLink() || !opened.isFile()
+    || ![current.dev, current.ino, opened.dev, opened.ino].every(value => typeof value === 'bigint' && value > 0n)
+    || current.dev !== opened.dev || current.ino !== opened.ino) throw new Error('Invalid tracker receipt');
+}
 
 /** Fresh, no-model readback. Only the installed project-bound native route is used. */
 export async function reconcileNativeWorkerTracker({ project, harness, projectId, requiredTasks }, {
@@ -113,7 +129,7 @@ export async function reconcileNativeWorkerTracker({ project, harness, projectId
 /** Runtime-owned Taskavel close-out. It has no model turn and can invoke only
  * the two fixed tools validated by native-tracker-operations. */
 export async function closeNativeWorkerTracker({ project, harness, contract, closeout, reportId }, {
-  invoke = spawnSync, operate = operateNativeCodexTaskavel, now = Date.now,
+  invoke = spawnSync, operate = operateNativeCodexTaskavel, now = Date.now, afterReceiptOpen = () => {},
 } = {}) {
   if (harness !== 'codex' || !path.isAbsolute(project ?? '') || fs.realpathSync(project) !== project) throw new Error('Native tracker close-out is unavailable');
   if (typeof reportId !== 'string' || !/^[a-f0-9-]{36}$/.test(reportId)) throw new Error('Native tracker close-out receipt is invalid');
@@ -148,12 +164,19 @@ export async function closeNativeWorkerTracker({ project, harness, contract, clo
   const identity = JSON.stringify({ reportId, contractHash: immutableContract.hash, projectId: binding.projectId, closeout });
   let descriptor;
   try {
+    // O_NOFOLLOW is unavailable on Windows. Reject an existing link before
+    // attempting either creation or replay so it cannot redirect the receipt.
+    assertSafeReceiptPath(receiptPath);
     descriptor = fs.openSync(receiptPath, fs.constants.O_RDWR | fs.constants.O_CREAT | fs.constants.O_EXCL | NOFOLLOW, 0o600);
+    afterReceiptOpen({ receiptPath, descriptor, phase: 'create' });
+    assertOpenedReceiptPath(receiptPath, descriptor);
     writeReceipt(descriptor, { identity, state: 'ambiguous' });
   } catch (error) {
+    if (descriptor !== undefined) { try { fs.closeSync(descriptor); } catch {} }
+    if (error?.message === 'Invalid tracker receipt') throw new Error('Native tracker close-out receipt is invalid');
     if (error?.code !== 'EEXIST') throw new Error('Native tracker close-out receipt is unavailable');
     let prior; let existing;
-    try { existing = fs.openSync(receiptPath, fs.constants.O_RDONLY | NOFOLLOW); prior = receiptValue(existing); fs.closeSync(existing); } catch { if (existing !== undefined) fs.closeSync(existing); throw new Error('Native tracker close-out receipt is invalid'); }
+    try { assertSafeReceiptPath(receiptPath); existing = fs.openSync(receiptPath, fs.constants.O_RDONLY | NOFOLLOW); afterReceiptOpen({ receiptPath, descriptor: existing, phase: 'replay' }); assertOpenedReceiptPath(receiptPath, existing); prior = receiptValue(existing); fs.closeSync(existing); } catch { if (existing !== undefined) fs.closeSync(existing); throw new Error('Native tracker close-out receipt is invalid'); }
     if (prior?.identity !== identity || prior.state !== 'complete' || !prior.operation) {
       throw new Error('Native tracker close-out has an ambiguous prior mutation');
     }

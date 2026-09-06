@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import {
   createJsonLineReader, createParagraphRenderer, readableConductorEvent,
   safeConductorText, safeEvidenceRecord,
@@ -216,7 +217,27 @@ test('app-server arguments preserve project trust while disabling apps and nativ
   assert.deepEqual(args.filter(value => value === 'apps' || value === 'multi_agent'), ['apps', 'multi_agent']);
 });
 
-test('spawned fake app-server proves readable initial, approval, follow-up, and private evidence boundaries', async t => {
+test('the conductor entrypoint runs from a path with spaces', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orkestar conductor entrypoint-')); t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const project = fs.realpathSync(root);
+  const entrypoint = path.join(project, 'native conductor live.mjs');
+  fs.copyFileSync(fileURLToPath(new URL('../native-conductor-live.mjs', import.meta.url)), entrypoint);
+  fs.copyFileSync(fileURLToPath(new URL('../native-conductor-protocol.mjs', import.meta.url)), path.join(project, 'native-conductor-protocol.mjs'));
+  const result = spawnSync(process.execPath, [entrypoint, '--project', project, '--codex', process.execPath, '--model', 'fixture',
+    '--instructions-base64', Buffer.from('bounded instructions').toString('base64'), '--marker', 'space-test'], { encoding: 'utf8', timeout: 5_000 });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /\[STARTING\] Lenka route: fixture\./, result.stderr);
+});
+
+test('the conductor module imports safely from standard input', () => {
+  const result = spawnSync(process.execPath, ['--input-type=module', '-'], {
+    cwd: path.resolve(import.meta.dirname, '..'), input: "import './native-conductor-live.mjs';\n", encoding: 'utf8', timeout: 5_000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, '');
+});
+
+test('portable Node child proves readable initial, approval, follow-up, and private evidence boundaries', async t => {
   const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'orkestar-conductor-process-'))); t.after(() => fs.rmSync(project, { recursive: true, force: true }));
   const fake = path.join(project, 'fake-codex.mjs');
   fs.writeFileSync(fake, `#!/usr/bin/env node
@@ -261,88 +282,97 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   }
 });
 `);
-  fs.chmodSync(fake, 0o700);
-  const conductorScript = path.resolve('native-conductor-live.mjs');
-  const ptyRunner = path.join(project, 'pty-runner.py');
-  if (process.platform === 'darwin') fs.writeFileSync(ptyRunner, `
-import os, pty, select, sys
-pid, master = pty.fork()
-if pid == 0:
-    os.execv(sys.argv[1], sys.argv[1:])
-stdin_fd = sys.stdin.fileno()
-stdin_open = True
-while True:
-    watched = [master] + ([stdin_fd] if stdin_open else [])
-    try:
-        ready = select.select(watched, [], [])[0]
-    except OSError:
-        break
-    if master in ready:
-        try:
-            data = os.read(master, 4096)
-        except OSError:
-            break
-        if not data:
-            break
-        os.write(sys.stdout.fileno(), data)
-    if stdin_open and stdin_fd in ready:
-        data = os.read(stdin_fd, 4096)
-        if data:
-            os.write(master, data)
-        else:
-            os.write(master, b'\\x04')
-            stdin_open = False
-_, status = os.waitpid(pid, 0)
-raise SystemExit(os.waitstatus_to_exitcode(status))
-`);
-  // Execute the real conductor entry point; the fake binary above is only the child app-server.
-  const conductorCommand = [process.execPath, conductorScript,
-    '--project', project, '--codex', fake, '--model', 'gpt-test', '--effort', 'medium',
-    '--instructions-base64', Buffer.from('bounded instructions').toString('base64'), '--marker', 'process-test',
-  ];
-  // A real macOS pseudo-terminal drives the terminal signal path: a literal
-  // Ctrl-C byte becomes SIGINT for the foreground conductor while its detached
-  // app-server remains alive long enough to acknowledge turn/interrupt.
-  const actual = process.platform === 'darwin'
-    ? spawn('/usr/bin/python3', [ptyRunner, ...conductorCommand], { cwd: project, stdio: ['pipe', 'pipe', 'pipe'] })
-    : spawn(conductorCommand[0], conductorCommand.slice(1), { cwd: project, stdio: ['pipe', 'pipe', 'pipe'] });
-  const lines = []; const errors = []; let completedTurns = 0; let sentDecision = false; let sentSignal = false; let continued = false;
-  readline.createInterface({ input: actual.stdout }).on('line', line => {
-    lines.push(line);
-    if (line.includes('Lenka is ready')) actual.stdin.write('initial request\n');
-    else if (line.startsWith('[APPROVAL]') && !sentDecision) { sentDecision = true; actual.stdin.write('/decline\n'); }
-    else if (line === '[ACTIVITY] Running a project command.' && !sentSignal) {
-      sentSignal = true;
-      if (process.platform === 'darwin') actual.stdin.write('\x03');
-      else actual.kill('SIGINT');
-    }
-    else if (line.includes('[INTERRUPTED]') && !continued) { continued = true; actual.stdin.write('continue after interruption\n'); }
-    else if (line.startsWith('[READY] Turn finished')) {
-      completedTurns += 1;
-      if (completedTurns === 1) actual.stdin.write('follow-up request\n');
-      else if (completedTurns === 2) actual.stdin.write('long request\n');
-      else actual.stdin.write('/quit\n');
-    }
+  // Execute the real conductor protocol against a portable Node child. This
+  // avoids relying on POSIX shebang execution for the fake app-server.
+  const actual = spawn(process.execPath, [fake, ...appServerArgs(project)], { cwd: project, stdio: ['pipe', 'pipe', 'pipe'] });
+  const evidence = openPrivateEvidence(project, 'process-test');
+  const evidenceFile = evidence.file;
+  const evidenceFd = evidence.fd;
+  const lines = []; const errors = []; let completedTurns = 0; let sentDecision = false; let sentSignal = false; let continued = false; let conductor;
+  const exit = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { actual.kill(); reject(new Error(`conductor process timed out\n${lines.join('\n')}\n${errors.join('')}`)); }, 5_000);
+    conductor = createConductor({ child: actual, evidenceFd, projectPath: project, modelName: 'gpt-test', reasoningEffort: 'medium',
+      instructionsBase64: Buffer.from('bounded instructions').toString('base64'), onExit: status => { clearTimeout(timer); resolve(status); }, output: line => {
+        lines.push(line);
+        if (line.includes('Lenka is ready')) conductor.line('initial request');
+        else if (line.startsWith('[APPROVAL]') && !sentDecision) { sentDecision = true; conductor.line('/decline'); }
+        else if (line === '[ACTIVITY] Running a project command.' && !sentSignal) { sentSignal = true; conductor.interrupt(); }
+        else if (line.includes('[INTERRUPTED]') && !continued) { continued = true; conductor.line('continue after interruption'); }
+        else if (line.startsWith('[READY] Turn finished')) {
+          completedTurns += 1;
+          if (completedTurns === 1) conductor.line('follow-up request');
+          else if (completedTurns === 2) conductor.line('long request');
+          else conductor.line('/quit');
+        }
+      } });
+    conductor.initialize();
   });
   actual.stderr.on('data', chunk => errors.push(String(chunk)));
-  const exit = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { actual.kill(); reject(new Error(`conductor process timed out\n${lines.join('\n')}\n${errors.join('')}`)); }, 5_000);
-    actual.on('exit', code => { clearTimeout(timer); resolve(code); });
-  });
-  assert.equal(exit, 0, errors.join(''));
-  assert.ok(lines.includes('[STARTING] Lenka route: gpt-test (medium effort).'));
+  const status = await exit;
+  assert.equal(status.expected, true, errors.join(''));
   assert.equal(lines.filter(line => line === '[ACTIVITY] Checking worker progress.').length, 1);
   assert.equal(lines.filter(line => line.startsWith('First paragraph with')).length, 1);
   assert.ok(lines.includes('First paragraph with [redacted]')); assert.ok(lines.includes('Second paragraph.')); assert.ok(lines.includes('Follow-up finished.'));
   assert.ok(lines.includes('Continued after interruption.')); assert.equal(sentSignal, true); assert.equal(continued, true);
   assert.equal(lines.join('\n').includes('abcdefghijklmnop'), false); assert.equal(lines.join('\n').includes('jsonrpc'), false);
   assert.equal(completedTurns, 3);
-  const evidenceFiles = fs.readdirSync(path.join(project, '.agent-orchestra', 'conductor'));
-  assert.equal(evidenceFiles.length, 1);
-  const evidenceFile = path.join(project, '.agent-orchestra', 'conductor', evidenceFiles[0]); const stat = fs.statSync(evidenceFile);
-  assert.equal(stat.mode & 0o777, 0o600); assert.ok(stat.size <= 1024 * 1024);
-  const evidence = fs.readFileSync(evidenceFile, 'utf8');
-  assert.equal(evidence.includes('abcdefghijklmnop'), false); assert.ok(evidence.includes('[streamed text omitted]'));
+  const stat = fs.statSync(evidenceFile);
+  if (process.platform !== 'win32') assert.equal(stat.mode & 0o777, 0o600); assert.ok(stat.size <= 1024 * 1024);
+  const evidenceText = fs.readFileSync(evidenceFile, 'utf8');
+  assert.equal(evidenceText.includes('abcdefghijklmnop'), false); assert.ok(evidenceText.includes('[streamed text omitted]'));
+});
+
+test('POSIX conductor entrypoint forwards an interrupt to its app-server and quits cleanly', { skip: process.platform === 'win32' && 'requires POSIX shebang and terminal signal handling' }, async t => {
+  const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'orkestar-conductor-signal-'))); t.after(() => fs.rmSync(project, { recursive: true, force: true }));
+  const fake = path.join(project, 'signal-codex.mjs');
+  fs.writeFileSync(fake, `#!/usr/bin/env node
+import readline from 'node:readline';
+const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+readline.createInterface({ input: process.stdin }).on('line', line => {
+  const row = JSON.parse(line);
+  if (row.method === 'initialize') return send({ jsonrpc: '2.0', id: row.id, result: {} });
+  if (row.method === 'thread/start') return send({ jsonrpc: '2.0', id: row.id, result: { thread: { id: 'thread-1' } } });
+  if (row.method === 'turn/start') { send({ jsonrpc: '2.0', id: row.id, result: { turn: { id: 'turn-1' } } }); return send({ method: 'item/started', params: { threadId: 'thread-1', turnId: 'turn-1', item: { id: 'command-1', type: 'commandExecution', command: 'wait', status: 'inProgress' } } }); }
+  if (row.method === 'turn/interrupt') { send({ jsonrpc: '2.0', id: row.id, result: {} }); return send({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'interrupted' } } }); }
+});
+`);
+  fs.chmodSync(fake, 0o700);
+  const command = [process.execPath, path.resolve('native-conductor-live.mjs'), '--project', project, '--codex', fake,
+    '--model', 'gpt-test', '--instructions-base64', Buffer.from('bounded instructions').toString('base64'), '--marker', 'signal-test'];
+  const pty = path.join(project, 'pty-runner.py');
+  if (process.platform === 'darwin') fs.writeFileSync(pty, `import os, pty, select, sys
+pid, master = pty.fork()
+if pid == 0: os.execv(sys.argv[1], sys.argv[1:])
+stdin, open_ = sys.stdin.fileno(), True
+while True:
+  ready = select.select([master] + ([stdin] if open_ else []), [], [])[0]
+  if master in ready:
+    data = os.read(master, 4096)
+    if not data: break
+    os.write(sys.stdout.fileno(), data)
+  if open_ and stdin in ready:
+    data = os.read(stdin, 4096)
+    if data: os.write(master, data)
+    else: os.write(master, b'\\x04'); open_ = False
+_, status = os.waitpid(pid, 0)
+raise SystemExit(os.waitstatus_to_exitcode(status))
+`);
+  const actual = process.platform === 'darwin'
+    ? spawn('/usr/bin/python3', [pty, ...command], { cwd: project, stdio: ['pipe', 'pipe', 'pipe'] })
+    : spawn(command[0], command.slice(1), { cwd: project, stdio: ['pipe', 'pipe', 'pipe'] });
+  const lines = []; let interrupted = false;
+  readline.createInterface({ input: actual.stdout }).on('line', line => {
+    lines.push(line);
+    if (line.includes('Lenka is ready')) actual.stdin.write('start\n');
+    else if (line === '[ACTIVITY] Running a project command.') {
+      if (process.platform === 'darwin') actual.stdin.write('\x03'); else actual.kill('SIGINT');
+    } else if (line.includes('[INTERRUPTED]') && !interrupted) { interrupted = true; actual.stdin.write('/quit\n'); }
+  });
+  const exit = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { actual.kill(); reject(new Error(`conductor signal process timed out: ${lines.join('\n')}`)); }, 5_000);
+    actual.on('exit', code => { clearTimeout(timer); resolve(code); });
+  });
+  assert.equal(exit, 0); assert.equal(interrupted, true); assert.ok(lines.includes('[ACTIVITY] Running a project command.'));
 });
 
 test('spawned conductor exits on idle quit and reports an unexpected app-server crash', async t => {
@@ -357,16 +387,14 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
   if (row.method === 'initialized') process.exit(17);
 });
 `);
-  fs.chmodSync(fake, 0o700);
-  const actual = spawn(process.execPath, [path.resolve('native-conductor-live.mjs'),
-    '--project', project, '--codex', fake, '--model', 'gpt-test',
-    '--instructions-base64', Buffer.from('bounded instructions').toString('base64'), '--marker', 'crash-test',
-  ], { cwd: project, stdio: ['pipe', 'pipe', 'pipe'] });
-  const stdout = []; actual.stdout.on('data', chunk => stdout.push(String(chunk)));
+  const actual = spawn(process.execPath, [fake, ...appServerArgs(project)], { cwd: project, stdio: ['pipe', 'pipe', 'pipe'] });
+  const stdout = [];
   const exit = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => { actual.kill(); reject(new Error('crashing conductor did not exit')); }, 2_000);
-    actual.on('exit', code => { clearTimeout(timer); resolve(code); });
+    const conductor = createConductor({ child: actual, projectPath: project, modelName: 'gpt-test', output: line => stdout.push(line),
+      onExit: status => { clearTimeout(timer); resolve(status); } });
+    conductor.initialize();
   });
-  assert.equal(exit, 1);
+  assert.equal(exit.expected, false);
   assert.match(stdout.join(''), /\[FAILED\] The Codex app-server stopped unexpectedly \(exit 17\)\./);
 });

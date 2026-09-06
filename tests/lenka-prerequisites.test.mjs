@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 
-const instructions = fs.readFileSync(new URL('../agents/lenka.md', import.meta.url), 'utf8');
+const instructions = fs.readFileSync(new URL('../agents/lenka.md', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
 test('build prerequisites bind dev-server ownership to the target project without widening authority', () => {
   assert.match(instructions, /process working directory and the target project's `public\/hot`/);
   assert.match(instructions, /listener on port 5173 alone does not identify/);

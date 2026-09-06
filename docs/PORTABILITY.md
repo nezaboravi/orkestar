@@ -50,11 +50,15 @@ launcher on `PATH` from Solo settings before using this workspace.
 Before launching Lenka, Orkestar registers Solo's bundled MCP helper in the
 selected client while preserving existing MCP entries. Lenka then creates the
 run scratchpad and todos. OpenCode dispatches required development phases as
-visible Solo workers; Codex uses native named subagents, not separate Solo
-processes. Automatic Kimi/Solo MCP registration is currently unsupported.
+visible Solo workers; Codex and Claude use the project-local native bridge with
+separately selectable workers. Automatic Kimi/Solo MCP registration is currently unsupported.
 All ordinary discovery remains inside the active project;
 the launcher-projected runtime manifest replaces any need to scan a user's home
 directory for models, agents, or installation files.
+
+POSIX file-mode checks protect private evidence where those modes are enforced.
+They do not establish Windows ACL isolation; Windows ACL verification remains
+outside this portability check.
 
 ### Solo worker permission boundary
 

@@ -26,7 +26,8 @@ test('dedicated registration is exact, unique and never falls back to another to
   assert.equal(liveWorkerTool([tool]).id, 9);
   const spaced = '/Applications/Example App/bin/node';
   assert.equal(liveWorkerTool([{ ...tool, command: liveWorkerCommand(spaced) }], spaced).id, 9);
-  assert.equal(spawnSync('/bin/sh', ['-c', 'printf %s ' + liveWorkerCommand(spaced)], { encoding: 'utf8' }).stdout, spaced);
+  if (process.platform === 'win32') assert.equal(liveWorkerCommand(spaced), `"${spaced}"`);
+  else assert.equal(spawnSync('/bin/sh', ['-c', 'printf %s ' + liveWorkerCommand(spaced)], { encoding: 'utf8' }).stdout, spaced);
   for (const tools of [[], [tool, tool], [{ ...tool, command: 'node' }], [{ ...tool, toolType: 'codex' }]]) assert.throws(() => liveWorkerTool(tools), /one-time setup/);
 });
 test('renderer shows bounded readable prose and usage, not command output or control sequences', () => {
@@ -130,7 +131,7 @@ test('real wrapper retains private exact raw evidence and verifies receipt bindi
   const result = f.run(); assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Verified outcome/); assert.doesNotMatch(result.stdout, /item.completed/);
   assert.deepEqual(readLiveWorkerOutput(f.project, f), { raw, diagnostic: false, truncated: false, exitCode: 0, rawTruncated: false, evidenceTruncated: false, streamInvalid: false });
-  assert.equal(fs.statSync(f.base + '.raw').mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(f.base + '.raw').mode & 0o777, 0o600);
   assert.throws(() => readLiveWorkerOutput(f.project, { ...f, liveLaunchHash: '0'.repeat(64) }), /identity/);
 });
 test('oversized valid tool stream retains complete compact evidence and private raw prefix', () => {

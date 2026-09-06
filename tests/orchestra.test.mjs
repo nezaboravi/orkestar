@@ -51,7 +51,7 @@ test('Claude conductor receives only exact worker MCP permissions without edit o
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-worker-tools-'));
   const plan = buildPlan({ selectedTools: ['claude'], home: root, project: root, projectOnly: true,
     resolvedModelsByTool: { claude: {} }, resolvedFactoryModelsByTool: { claude: {} } });
-  const conductor = plan.operations.find(item => item.target.endsWith('/.claude/agents/lenka.md')).content.toString();
+  const conductor = plan.operations.find(item => item.target === path.join(root, '.claude', 'agents', 'lenka.md')).content.toString();
   const frontmatter = conductor.split('---')[1];
   for (const tool of ['worker_ready', 'worker_contract', 'worker_dispatch', 'worker_dispatch_wave', 'worker_status', 'worker_result', 'worker_report',
     'coord_todo_list', 'coord_todo_create', 'coord_todo_update', 'coord_scratchpad_list',
@@ -60,7 +60,7 @@ test('Claude conductor receives only exact worker MCP permissions without edit o
   }
   assert.doesNotMatch(frontmatter, /  - (Bash|Edit|Write)/);
   assert.doesNotMatch(frontmatter, /mcp__orkestar_worker__\*/);
-  const reviewer = plan.operations.find(item => item.target.endsWith('/.claude/agents/reviewer.md')).content.toString().split('---')[1];
+  const reviewer = plan.operations.find(item => item.target === path.join(root, '.claude', 'agents', 'reviewer.md')).content.toString().split('---')[1];
   assert.doesNotMatch(reviewer, /mcp__orkestar_worker__/);
 });
 

@@ -111,8 +111,33 @@ test('close-out receipts persist successful operations and fail closed for ambig
   fs.writeFileSync(receipt, JSON.stringify({ identity: 'other', state: 'complete', operation: one }));
   await assert.rejects(closeNativeWorkerTracker(base, deps), /ambiguous prior/);
   fs.writeFileSync(receipt, '{'); await assert.rejects(closeNativeWorkerTracker(base, deps), /receipt is invalid/);
-  fs.unlinkSync(receipt); fs.symlinkSync(path.join(f.project, 'outside'), receipt);
+  fs.unlinkSync(receipt); const outside = path.join(f.project, 'outside'); fs.symlinkSync(outside, receipt);
   await assert.rejects(closeNativeWorkerTracker(base, deps), /receipt is invalid/);
+  assert.equal(fs.existsSync(outside), false);
+
+  const createId = '00000000-0000-4000-8000-000000000103';
+  const createReceipt = path.join(f.project, '.agent-orchestra', 'tracker-receipts', `${createId}.json`);
+  const createOutside = path.join(f.project, 'create-outside');
+  await assert.rejects(closeNativeWorkerTracker({ ...base, reportId: createId }, { ...deps, afterReceiptOpen: ({ phase }) => {
+    if (phase === 'create') { fs.unlinkSync(createReceipt); fs.symlinkSync(createOutside, createReceipt); }
+  } }), /receipt is invalid/);
+  assert.equal(fs.existsSync(createOutside), false);
+
+  const removedId = '00000000-0000-4000-8000-000000000105';
+  const removedReceipt = path.join(f.project, '.agent-orchestra', 'tracker-receipts', `${removedId}.json`); let removedDescriptor;
+  await assert.rejects(closeNativeWorkerTracker({ ...base, reportId: removedId }, { ...deps, afterReceiptOpen: ({ receiptPath, descriptor, phase }) => {
+    if (phase === 'create') { removedDescriptor = descriptor; fs.unlinkSync(receiptPath); }
+  } }), /receipt is unavailable/);
+  assert.equal(fs.existsSync(removedReceipt), false); assert.throws(() => fs.writeSync(removedDescriptor, 'closed'), /bad file descriptor/i);
+
+  const replayId = '00000000-0000-4000-8000-000000000104';
+  await closeNativeWorkerTracker({ ...base, reportId: replayId }, deps);
+  const replayReceipt = path.join(f.project, '.agent-orchestra', 'tracker-receipts', `${replayId}.json`);
+  const replayOutside = path.join(f.project, 'replay-outside');
+  await assert.rejects(closeNativeWorkerTracker({ ...base, reportId: replayId }, { ...deps, afterReceiptOpen: ({ phase }) => {
+    if (phase === 'replay') { fs.unlinkSync(replayReceipt); fs.symlinkSync(replayOutside, replayReceipt); }
+  } }), /receipt is invalid/);
+  assert.equal(fs.existsSync(replayOutside), false);
 });
 
 test('membership rejection preserves the ambiguous receipt and requires fresh state before retry', async t => {

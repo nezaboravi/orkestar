@@ -2,7 +2,7 @@
 
 Lenka coordinates coding agents in your project using your own AI account.
 Orkestar provides the launcher, scoped workers, readable progress, and evidence
-collection. **Early release: 0.1.2.** Review the result before relying on it.
+collection. **Early release: 0.1.3.** Review the result before relying on it.
 
 ## Install
 

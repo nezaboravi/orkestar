@@ -6,6 +6,7 @@ import process from 'node:process';
 import readline from 'node:readline';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import {
   CONDUCTOR_PROTOCOL_VERSION, createJsonLineReader, createParagraphRenderer,
   readableConductorEvent, safeConductorText, safeEvidenceRecord,
@@ -18,7 +19,11 @@ const usage = 'Usage: native-conductor-live.mjs --project <absolute-path> --code
 const arg = name => { const index = process.argv.indexOf(name); return index < 0 ? null : process.argv[index + 1] || null; };
 const project = arg('--project'); const binary = arg('--codex'); const model = arg('--model'); const marker = arg('--marker');
 const effort = arg('--effort'); const instructionBytes = arg('--instructions-base64');
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === new URL(import.meta.url).pathname;
+const isMain = (() => {
+  if (!process.argv[1]) return false;
+  try { return fs.realpathSync(process.argv[1]) === fs.realpathSync(fileURLToPath(import.meta.url)); }
+  catch { return false; }
+})();
 
 function write(line = '') { process.stdout.write(`${line}\n`); }
 

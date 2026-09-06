@@ -25,7 +25,7 @@ test('meetup rehearsal has a bounded scope and honest deadline, not a speed guar
 });
 
 test('small-feature guidance formats before review and retains independent acceptance', () => {
-  const leader = fs.readFileSync(new URL('../agents/lenka.md', import.meta.url), 'utf8');
+  const leader = fs.readFileSync(new URL('../agents/lenka.md', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
   const builder = fs.readFileSync(new URL('../teams/dev/dev-builder.md', import.meta.url), 'utf8');
   const reviewer = fs.readFileSync(new URL('../agents/reviewer.md', import.meta.url), 'utf8');
   assert.match(leader, /tracker setup before\n  coding/);

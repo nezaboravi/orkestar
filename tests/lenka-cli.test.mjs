@@ -196,7 +196,7 @@ test('a stale verified route runs bootstrap before Lenka launches again', async 
   assert.equal(result, 0);
   assert.deepEqual(launches, ['gpt-5.6-terra']);
   assert.equal(commands.length, 1);
-  assert.equal(commands[0][0], 'sh');
+  assert.equal(commands[0][0], process.platform === 'win32' ? 'powershell.exe' : 'sh');
   assert.ok(commands[0][1].includes('--no-launch'));
 });
 
