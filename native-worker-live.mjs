@@ -23,6 +23,16 @@ const redact = text => String(text)
   .replace(/((?:token|secret|password|api[_-]?key)\s*[":=]\s*)[^\s,}"\]]+/gi, `$1${REDACTED}`);
 const safe = (text, max = 2400) => redact(text).replace(/\n{3,}/g, '\n\n').slice(0, max);
 const safeInline = (text, max = 240) => safe(text, max).replace(/\s*\n\s*/g, ' ').trim();
+const opaqueEvidenceId = /\b(?:[a-f0-9]{64}|[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b/gi;
+function readableEvidence(text, max = 320) {
+  const value = String(text);
+  const hasOpaqueId = opaqueEvidenceId.test(value); opaqueEvidenceId.lastIndex = 0;
+  if (!hasOpaqueId) return safeInline(value, max);
+  const remainder = value.replace(opaqueEvidenceId, '').replace(/\b(?:reviewed|verified|recorded|matching|matched|matches|artifact|file|source|content|payload|evidence|commit|identity|hash|digest|checksum|sha-?256|id|at|is|was)\b/gi, '').replace(/[^A-Za-z0-9]+/g, '');
+  opaqueEvidenceId.lastIndex = 0;
+  if (!remainder) return 'Reviewed artifact identity recorded in evidence.';
+  return safeInline(value.replace(opaqueEvidenceId, '[recorded in evidence]'), max);
+}
 const TRUST_ERROR = Buffer.from('Not inside a trusted directory and --skip-git-repo-check was not specified.');
 const TRUST_DIAGNOSTIC = Object.freeze({ code: 'CODEX_TRUSTED_DIRECTORY_REQUIRED',
   message: 'Codex refused to start outside a trusted Git directory. The Orkestar launcher must handle the approved project explicitly; no agent work was verified.' });
@@ -91,7 +101,7 @@ function workerSummary(value) {
   const lines = [`Worker-reported verdict: ${verdict}. This is not final acceptance.`];
   const entries = (label, input) => {
     if (!Array.isArray(input)) return;
-    for (const item of input.slice(0, 8)) if (typeof item === 'string' && item.trim()) lines.push(`${label}: ${safeInline(item, 320)}`);
+    for (const item of input.slice(0, 8)) if (typeof item === 'string' && item.trim()) lines.push(`${label}: ${readableEvidence(item)}`);
   };
   entries('Check', value.checks);
   for (const [name, label] of [['security', 'Security'], ['performance', 'Performance']]) {
@@ -116,9 +126,20 @@ function workerSummary(value) {
 function prose(text) {
   if (typeof text !== 'string') return '';
   const trimmed = text.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*\n([\s\S]*?)\n```/i);
-  const arrayLike = /^\[\s*(?:[\[{"\]\d-]|true\b|false\b|null\b)/i.test(trimmed);
-  const structured = trimmed.includes('```') || trimmed.startsWith('{') || arrayLike;
+  const fenced = trimmed.match(/^```json[^\S\r\n]*\r?\n([\s\S]*?)\r?\n```[^\S\r\n]*$/i);
+  const startsJsonFence = /^```json(?:\s|$)/i.test(trimmed);
+  let arrayLike = false;
+  if (trimmed.startsWith('[')) {
+    try { JSON.parse(trimmed); arrayLike = true; }
+    catch {
+      const close = trimmed.indexOf(']');
+      const after = close < 0 ? '' : trimmed.slice(close + 1);
+      const label = close < 0 ? '' : trimmed.slice(1, close);
+      const bracketLabel = /^[\p{L}\p{N}\p{M} ._✓-]{1,80}$/u.test(label) && (after === '' || /^(?:\s|\()/.test(after));
+      arrayLike = !bracketLabel;
+    }
+  }
+  const structured = startsJsonFence || trimmed.startsWith('{') || arrayLike;
   if (!structured) return safe(text);
   if (Buffer.byteLength(trimmed) > 32768) return 'Structured worker result exceeds the readable display bound. Inspect the bound evidence.';
   let value;

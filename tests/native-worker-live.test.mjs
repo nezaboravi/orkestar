@@ -76,18 +76,45 @@ test('renderer projects real reviewer objects and withholds fenced, malformed, o
   assert.match(output, /no recognized human-readable fields/i); assert.match(output, /could not be rendered safely/i);
   assert.doesNotMatch(output, /private-run-id|PRIVATE REVIEW DATA|UNKNOWN PRIVATE DATA|MALFORMED PRIVATE DATA|BROKEN FENCE DATA|```|"verdict"/);
 });
-test('renderer preserves ordinary bracket-led Markdown while withholding JSON arrays', () => {
+test('renderer preserves closed bracket prose labels while withholding JSON arrays', () => {
   let output = ''; const render = createLiveRenderer(value => { output += value; });
   for (const text of ['[README](docs/README.md) verified.', '[x] focused tests passed.',
+    '[2026-09-06] Focused tests passed.', '[1] First acceptance criterion passed.',
+    '[café] tests passed.', '[✓] review complete.',
     '[{"verdict":"APPROVED","private":"ARRAY PRIVATE DATA"}]',
-    '[{"verdict":"APPROVED","private":"BROKEN ARRAY DATA"']) {
+    '[{"verdict":"APPROVED","private":"BROKEN ARRAY DATA"',
+    '[{"verdict":"APPROVED","private":"ANNOTATED OBJECT ARRAY DATA"}] trailing commentary',
+    '["ANNOTATED STRING ARRAY DATA"] trailing commentary']) {
     render(Buffer.from(`${JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text } })}\n`));
   }
   assert.match(output, /\[README\]\(docs\/README\.md\) verified\./);
   assert.match(output, /\[x\] focused tests passed\./);
+  assert.match(output, /\[2026-09-06\] Focused tests passed\./);
+  assert.match(output, /\[1\] First acceptance criterion passed\./);
+  assert.match(output, /\[café\] tests passed\./); assert.match(output, /\[✓\] review complete\./);
   assert.match(output, /no recognized human-readable fields/i);
   assert.match(output, /could not be rendered safely/i);
-  assert.doesNotMatch(output, /ARRAY PRIVATE DATA|BROKEN ARRAY DATA|"verdict"/);
+  assert.doesNotMatch(output, /ARRAY PRIVATE DATA|BROKEN ARRAY DATA|ANNOTATED OBJECT ARRAY DATA|ANNOTATED STRING ARRAY DATA|"verdict"/);
+});
+test('renderer preserves embedded and non-JSON code fences', () => {
+  let output = ''; const render = createLiveRenderer(value => { output += value; });
+  const messages = ['Implemented the change.\n\n```js\nconsole.log("ok")\n```\n\nFocused tests passed.',
+    '```js\nconst status = "APPROVED";\n```'];
+  for (const text of messages) render(Buffer.from(`${JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text } })}\n`));
+  assert.match(output, /Implemented the change/); assert.match(output, /console\.log\("ok"\)/);
+  assert.match(output, /Focused tests passed/); assert.match(output, /const status = "APPROVED"/);
+  assert.doesNotMatch(output, /could not be rendered safely/);
+});
+test('renderer replaces opaque evidence identities without discarding diagnostic meaning', () => {
+  let output = ''; const render = createLiveRenderer(value => { output += value; });
+  const sha = 'a'.repeat(64); const runId = 'c77b9323-5785-4b1e-b458-01deeb7c773a';
+  const reviewer = { verdict: 'APPROVED',
+    security: { status: 'PASS', evidence: [`Artifact hash: ${sha}`, `Authorization check for ${runId} rejected an unowned write.`] },
+    performance: { status: 'PASS', evidence: [`Reviewed artifact identity ${runId}.`] } };
+  render(Buffer.from(`${JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(reviewer) } })}\n`));
+  assert.match(output, /Reviewed artifact identity recorded in evidence/);
+  assert.match(output, /Authorization check for \[recorded in evidence\] rejected an unowned write/);
+  assert.doesNotMatch(output, new RegExp(`${sha}|${runId}`));
 });
 test('renderer handles Claude text, failures, and does not redact ordinary task-manager text', () => {
   let output = ''; const render = createLiveRenderer(value => { output += value; });
