@@ -84,28 +84,47 @@ export function readLiveWorkerOutput(project, receipt) {
   if (done.schemaVersion !== undefined && done.schemaVersion !== 1) throw new Error('Unsupported native evidence version');
   return { raw, diagnostic: done.diagnostic, truncated: done.truncated, exitCode: done.exitCode, ...startup };
 }
-function workerSummary(text) {
-  if (typeof text !== 'string' || Buffer.byteLength(text) > 32768) return null;
-  let value; try { value = JSON.parse(text); } catch { return null; }
+function workerSummary(value) {
   if (!value || Array.isArray(value) || typeof value !== 'object') return null;
-  const verdict = ['DONE', 'PARTIAL', 'FAILED'].includes(value.verdict) ? value.verdict : null;
-  const lines = verdict ? [`Worker-reported verdict: ${verdict}. This is not final acceptance.`] : [];
+  const verdict = ['APPROVED', 'CHANGES_REQUIRED', 'DONE', 'PARTIAL', 'FAILED', 'BLOCKED'].includes(value.verdict) ? value.verdict : null;
+  if (!verdict) return null;
+  const lines = [`Worker-reported verdict: ${verdict}. This is not final acceptance.`];
   const entries = (label, input) => {
     if (!Array.isArray(input)) return;
     for (const item of input.slice(0, 8)) if (typeof item === 'string' && item.trim()) lines.push(`${label}: ${safeInline(item, 320)}`);
   };
-  entries('Check', value.checks); entries('Security', value.security); entries('Performance', value.performance); entries('Blocker', value.blockers);
+  entries('Check', value.checks);
+  for (const [name, label] of [['security', 'Security'], ['performance', 'Performance']]) {
+    const category = value[name];
+    if (Array.isArray(category)) { entries(label, category); continue; }
+    if (category === undefined) continue;
+    const status = typeof category?.status === 'string' && ['PASS', 'FAIL', 'NOT_APPLICABLE', 'BLOCKED', 'UNAVAILABLE', 'UNVERIFIED'].includes(category.status)
+      ? category.status : 'unrecognized';
+    lines.push(`${label}: ${status}.`);
+    if (status !== 'unrecognized') entries(`${label} evidence`, category.evidence);
+  }
+  entries('Blocker', value.blockers);
   if (Array.isArray(value.proof)) for (const proof of value.proof.slice(0, 8)) {
     if (!proof || typeof proof !== 'object' || Array.isArray(proof)) continue;
-    const criterion = typeof proof.criterionId === 'string' && /^[A-Za-z0-9_.-]{1,80}$/.test(proof.criterionId) ? proof.criterionId : null;
-    const result = typeof proof.result === 'string' && /^(pass(?:ed)?|fail(?:ed)?|partial|blocked|not applicable)$/i.test(proof.result.trim()) ? proof.result.trim() : null;
+    const identity = proof.criterionId ?? proof.criterion;
+    const criterion = typeof identity === 'string' && identity.trim() ? safeInline(identity, 160) : null;
+    const result = typeof proof.result === 'string' && /^(pass(?:ed)?|fail(?:ed)?|partial|blocked|unavailable|not[ _]applicable)$/i.test(proof.result.trim()) ? proof.result.trim() : null;
     if (criterion && result) lines.push(`Proof ${criterion}: ${result}.`);
   }
-  return lines.length ? lines.join('\n') : null;
+  return lines.join('\n');
 }
 function prose(text) {
-  const summary = workerSummary(text);
-  return summary ?? safe(text);
+  if (typeof text !== 'string') return '';
+  const trimmed = text.trim();
+  const fenced = trimmed.match(/```(?:json)?\s*\n([\s\S]*?)\n```/i);
+  const arrayLike = /^\[\s*(?:[\[{"\]\d-]|true\b|false\b|null\b)/i.test(trimmed);
+  const structured = trimmed.includes('```') || trimmed.startsWith('{') || arrayLike;
+  if (!structured) return safe(text);
+  if (Buffer.byteLength(trimmed) > 32768) return 'Structured worker result exceeds the readable display bound. Inspect the bound evidence.';
+  let value;
+  try { value = JSON.parse(fenced ? fenced[1] : trimmed); }
+  catch { return 'Structured worker result could not be rendered safely. Inspect the bound evidence.'; }
+  return workerSummary(value) || 'Structured worker result has no recognized human-readable fields. Inspect the bound evidence.';
 }
 function activity(row) {
   const item = row?.item;

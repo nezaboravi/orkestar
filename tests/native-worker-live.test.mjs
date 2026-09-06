@@ -54,6 +54,41 @@ test('renderer preserves paragraphs and lists across multibyte chunks, and rende
   assert.match(output, /Proof badge-visible: passed/); assert.match(output, /Security: No secret=\[redacted\] leaked/);
   assert.doesNotMatch(output, /private-review-id|also-private|raw command|private output|github_pat_abcdefghijklmnopqrstuvwx/);
 });
+test('renderer projects real reviewer objects and withholds fenced, malformed, or unknown structured payloads', () => {
+  let output = ''; const render = createLiveRenderer(value => { output += value; });
+  const reviewer = { verdict: 'APPROVED', reviewedRunIds: ['private-run-id'],
+    security: { status: 'PASS', evidence: ['Authorization ownership check passed.'] },
+    performance: { status: 'NOT_APPLICABLE', evidence: ['Presentation-only parser; no query path.'] },
+    proof: [{ criterion: 'Readable reviewer panel', result: 'passed', method: 'Replayed native final output.' }],
+    blockers: ['None observed.'], privatePayload: 'PRIVATE REVIEW DATA' };
+  const fenced = '```json\n' + JSON.stringify({ verdict: 'CHANGES_REQUIRED',
+    security: { status: 'FAIL', evidence: ['Approval scope is hidden.'] },
+    performance: { status: 'UNVERIFIED', evidence: ['Render bound needs proof.'] } }) + '\n```';
+  const messages = [JSON.stringify(reviewer), fenced,
+    '{"verdict":"UNKNOWN","private":"UNKNOWN PRIVATE DATA"}',
+    '{"verdict":"APPROVED","private":"MALFORMED PRIVATE DATA"',
+    '```json\n{"verdict":"APPROVED","private":"BROKEN FENCE DATA"'];
+  for (const text of messages) render(Buffer.from(`${JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text } })}\n`));
+  assert.match(output, /Worker-reported verdict: APPROVED\. This is not final acceptance/);
+  assert.match(output, /Security: PASS\./); assert.match(output, /Security evidence: Authorization ownership check passed/);
+  assert.match(output, /Performance: NOT_APPLICABLE\./); assert.match(output, /Proof Readable reviewer panel: passed\./);
+  assert.match(output, /Worker-reported verdict: CHANGES_REQUIRED/); assert.match(output, /Security: FAIL/); assert.match(output, /Performance: UNVERIFIED/);
+  assert.match(output, /no recognized human-readable fields/i); assert.match(output, /could not be rendered safely/i);
+  assert.doesNotMatch(output, /private-run-id|PRIVATE REVIEW DATA|UNKNOWN PRIVATE DATA|MALFORMED PRIVATE DATA|BROKEN FENCE DATA|```|"verdict"/);
+});
+test('renderer preserves ordinary bracket-led Markdown while withholding JSON arrays', () => {
+  let output = ''; const render = createLiveRenderer(value => { output += value; });
+  for (const text of ['[README](docs/README.md) verified.', '[x] focused tests passed.',
+    '[{"verdict":"APPROVED","private":"ARRAY PRIVATE DATA"}]',
+    '[{"verdict":"APPROVED","private":"BROKEN ARRAY DATA"']) {
+    render(Buffer.from(`${JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text } })}\n`));
+  }
+  assert.match(output, /\[README\]\(docs\/README\.md\) verified\./);
+  assert.match(output, /\[x\] focused tests passed\./);
+  assert.match(output, /no recognized human-readable fields/i);
+  assert.match(output, /could not be rendered safely/i);
+  assert.doesNotMatch(output, /ARRAY PRIVATE DATA|BROKEN ARRAY DATA|"verdict"/);
+});
 test('renderer handles Claude text, failures, and does not redact ordinary task-manager text', () => {
   let output = ''; const render = createLiveRenderer(value => { output += value; });
   const rows = [{ type: 'system', subtype: 'init' }, { type: 'assistant', message: { content: [{ type: 'text', text: 'Task-manager checked the tracker; gho_abcdefghijklmnopqrstuvwx stays private.' }, { type: 'tool_use', name: 'private' }] } },
