@@ -169,6 +169,14 @@ export async function closeNativeWorkerTracker({ project, harness, contract, clo
     });
     writeReceipt(descriptor, { identity, state: 'complete', operation });
     return operation;
-  } catch { throw new Error('Native tracker close-out mutation acknowledgement is ambiguous'); }
+  } catch (error) {
+    // Keep the durable receipt ambiguous: this can be a later fixed operation
+    // after an earlier card mutation. Expose only the bounded cause and require
+    // a fresh readback before any separately authorized retry.
+    if (error?.message === 'Native Taskavel membership listing rejected') {
+      throw new Error('Native tracker close-out membership listing was rejected; fresh authenticated state is required before a separately authorized retry');
+    }
+    throw new Error('Native tracker close-out mutation acknowledgement is ambiguous');
+  }
   finally { if (descriptor !== undefined) fs.closeSync(descriptor); }
 }

@@ -151,6 +151,12 @@ test('same report serializes close-out and never retries an ambiguous adapter fa
     applyTrackerCloseout: async () => { calls++; throw new Error('lost acknowledgement'); }, reconcileTracker: async () => ({ projectId: 'name:Demo', checkedAt: 7000, snapshots: [] }) };
   const [one, two] = await Promise.all([finalizeNativeWorkerReport({ project: f.project, harness: 'codex', report: f.report }, deps), finalizeNativeWorkerReport({ project: f.project, harness: 'codex', report: f.report }, deps)]);
   assert.equal(calls, 1); assert.equal(one.status, 'PARTIAL'); assert.equal(two.status, 'PARTIAL');
+  f.report.reportId = runId(100);
+  const diagnostic = await finalizeNativeWorkerReport({ project: f.project, harness: 'codex', report: f.report }, {
+    ...deps,
+    applyTrackerCloseout: async () => { calls++; throw new Error('Native tracker close-out membership listing was rejected; fresh authenticated state is required before a separately authorized retry'); },
+  });
+  assert.ok(diagnostic.blockers.includes('Authenticated Taskavel membership listing was rejected; fresh authenticated state is required before any separately authorized retry.'));
 });
 test('legacy chronology, missing required roles and incomplete workers cannot claim DONE', async () => {
   const legacy = fixture({ capture: false }); assert.equal((await legacy.execute()).status, 'PARTIAL');

@@ -115,6 +115,39 @@ test('close-out receipts persist successful operations and fail closed for ambig
   await assert.rejects(closeNativeWorkerTracker(base, deps), /receipt is invalid/);
 });
 
+test('membership rejection preserves the ambiguous receipt and requires fresh state before retry', async t => {
+  const f = fixture(t); const reportId = '00000000-0000-4000-8000-000000000102';
+  const contract = createTaskContract({ schemaVersion: 1, goal: 'Close card', required: [{ id: 'R1', text: 'Done' }], localDecisions: [], outOfScope: [], discoveryPolicy: 'report-only',
+    changeSurface: { modules: [], fileKinds: [], migrationsAllowed: false, dependenciesAllowed: false, architectureChangesAllowed: false },
+    trackerAuthorization: { projectName: 'Demo', taskIds: [41], operations: ['read', 'update-task', 'move-task'], externalWriteAuthorized: true } });
+  const closeout = { authorization: { projectId: null, projectName: 'Demo', taskIds: [41], operations: ['read', 'update-task', 'move-task'], externalWriteAuthorized: true }, tasks: [{ taskId: 41, doneColumnName: 'Done' }] };
+  const invoke = (binary, args, options = {}) => binary === process.execPath
+    ? { status: 0, stdout: JSON.stringify({ name: 'taskavel', status: 'connected', enabledTools: nativeTaskavelArguments(JSON.parse(options.input).assignment).enabledTools, projectNames: ['Demo'] }) }
+    : { status: 0, stdout: JSON.stringify({ ok: true, data: { agentTools: [f.state.tool] } }) };
+  await assert.rejects(closeNativeWorkerTracker({ project: f.project, harness: 'codex', contract, closeout, reportId }, {
+    invoke, now: () => 10000, operate: async () => { throw new Error('Native Taskavel membership listing rejected'); },
+  }), /membership listing was rejected; fresh authenticated state is required/);
+  const receipt = JSON.parse(fs.readFileSync(path.join(f.project, '.agent-orchestra', 'tracker-receipts', `${reportId}.json`), 'utf8'));
+  assert.equal(receipt.state, 'ambiguous');
+});
+
+test('a later fixed operation membership rejection remains ambiguous after an earlier mutation', async t => {
+  const f = fixture(t); const reportId = '00000000-0000-4000-8000-000000000103'; let calls = 0;
+  const contract = createTaskContract({ schemaVersion: 1, goal: 'Close card', required: [{ id: 'R1', text: 'Done' }], localDecisions: [], outOfScope: [], discoveryPolicy: 'report-only',
+    changeSurface: { modules: [], fileKinds: [], migrationsAllowed: false, dependenciesAllowed: false, architectureChangesAllowed: false },
+    trackerAuthorization: { projectName: 'Demo', taskIds: [41], operations: ['read', 'update-task', 'move-task'], externalWriteAuthorized: true } });
+  const closeout = { authorization: { projectId: null, projectName: 'Demo', taskIds: [41], operations: ['read', 'update-task', 'move-task'], externalWriteAuthorized: true }, tasks: [{ taskId: 41, doneColumnName: 'Done' }] };
+  const invoke = (binary, args, options = {}) => binary === process.execPath
+    ? { status: 0, stdout: JSON.stringify({ name: 'taskavel', status: 'connected', enabledTools: nativeTaskavelArguments(JSON.parse(options.input).assignment).enabledTools, projectNames: ['Demo'] }) }
+    : { status: 0, stdout: JSON.stringify({ ok: true, data: { agentTools: [f.state.tool] } }) };
+  await assert.rejects(closeNativeWorkerTracker({ project: f.project, harness: 'codex', contract, closeout, reportId }, {
+    invoke, now: () => 10000, operate: async () => { calls++; if (calls === 2) throw new Error('Native Taskavel membership listing rejected'); return { isError: false }; },
+  }), /membership listing was rejected; fresh authenticated state is required/);
+  assert.equal(calls, 2);
+  const receipt = JSON.parse(fs.readFileSync(path.join(f.project, '.agent-orchestra', 'tracker-receipts', `${reportId}.json`), 'utf8'));
+  assert.equal(receipt.state, 'ambiguous');
+});
+
 test('close-out creates a fresh binding only from exact immutable existing-card authorization and native project proof', async t => {
   const f = fixture(t); const reportId = '00000000-0000-4000-8000-000000000100';
   fs.unlinkSync(path.join(f.runtime, 'taskavel-binding.json'));

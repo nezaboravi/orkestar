@@ -253,7 +253,7 @@ async function preflightCodexTaskavel({ binary, project, launch, spawnProcess, t
     const finish = (error, value) => {
       if (done) return;
       done = true; clearTimeout(timer); child?.kill();
-      if (error) reject(new Error('Native Codex Taskavel preflight failed')); else resolve(value);
+      if (error) reject(new Error(error === 'membership' ? 'Native Taskavel membership listing rejected' : 'Native Codex Taskavel preflight failed')); else resolve(value);
     };
     const timer = setTimeout(() => finish(true), Math.max(1, deadline - Date.now()));
     try { child = spawnProcess(binary, ['app-server', ...args], { cwd: project, stdio: ['pipe', 'pipe', 'ignore'] }); }
@@ -271,7 +271,7 @@ async function preflightCodexTaskavel({ binary, project, launch, spawnProcess, t
           if (row.id === 1) {
             send({ method: 'initialized' });
             send({ id: 2, method: 'config/read', params: { includeLayers: false, cwd: project } });
-          } else inspect(row, send, value => finish(false, value));
+          } else inspect(row, send, value => finish(false, value), error => finish(error));
         }
       } catch { finish(true); }
     });
@@ -296,7 +296,7 @@ async function preflightCodexTaskavel({ binary, project, launch, spawnProcess, t
     send({ id: 5, method: 'mcpServer/tool/call', params: { server: 'taskavel', threadId: probeThreadId,
       tool: 'filter-tasks-tool', arguments: { ...selector, status: 'any', limit: 100 } } });
   };
-  return run([...overrides, ...disabled], (row, send, finish) => {
+  return run([...overrides, ...disabled], (row, send, finish, fail) => {
     if (row.id === 2) {
       const config = row.result?.config, servers = config?.mcp_servers, server = servers?.taskavel;
       const sameTools = list => Array.isArray(list) && list.length === launch.enabledTools.length
@@ -336,7 +336,12 @@ async function preflightCodexTaskavel({ binary, project, launch, spawnProcess, t
       if (result?.isError === true || !Array.isArray(result?.content) || !result.content.length
         || result.content.some(block => block.type !== 'text' || typeof block.text !== 'string')) throw new Error();
       if (row.id === 5) {
-        if (!taskavelMembershipContains(result, taskId)) throw new Error();
+        // Reads retain the existing opaque failure boundary. A fixed mutation
+        // can expose this bounded cause for a later fresh-state recovery.
+        if (!taskavelMembershipContains(result, taskId)) {
+          if (operation) return fail('membership');
+          throw new Error();
+        }
         membershipResponse = result;
         send({ id: 6, method: 'mcpServer/tool/call', params: { server: 'taskavel', threadId: probeThreadId,
           tool: 'get-task-details-tool', arguments: { task_id: taskId } } });

@@ -197,8 +197,11 @@ export async function finalizeNativeWorkerReport({ project, harness, report }, {
       trackerReport = { ...trackerReport, trackerReconciliation: { ...trackerReport.trackerReconciliation,
         requiredTasks: trackerReport.trackerReconciliation.requiredTasks.map(task => ({ ...task,
           lastUpdateAttemptAt: attempted.get(String(task.taskId)) ?? task.lastUpdateAttemptAt })) } };
-    } catch {
+    } catch (error) {
       blockers.push('Authorized Taskavel close-out could not be completed with a bounded runtime operation.');
+      if (error?.message === 'Native tracker close-out membership listing was rejected; fresh authenticated state is required before a separately authorized retry') {
+        blockers.push('Authenticated Taskavel membership listing was rejected; fresh authenticated state is required before any separately authorized retry.');
+      }
     }
   }
   if (report.taskavel === 'synced') {

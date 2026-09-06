@@ -240,6 +240,15 @@ test('malformed project membership is rejected before the details RPC', async ()
   assert.equal(calls, 1);
 });
 
+test('membership format rejection is a bounded pre-mutation diagnostic', async () => {
+  const launch = nativeTaskavelArguments(assignment('codex', { operations: ['read', 'update-task'], externalWriteAuthorized: true }));
+  await assert.rejects(operateNativeCodexTaskavel({ binary: '/native/codex', project: '/project', launch,
+    operation: { tool: 'update-task-tool', taskId: 2, arguments: { task_id: 2, mark_complete: 'true' } } }, {
+    spawnProcess: fakeCodexSpawn(launch, (value, method) => method === 'mcpServer/tool/call' && value.content?.[0]?.text?.startsWith('Filtered tasks')
+      ? { ...value, content: [{ type: 'text', text: value.content[0].text.replace('[open]', '[open] unbracketed') }] } : value),
+  }), /^Error: Native Taskavel membership listing rejected$/);
+});
+
 test('fixed native operation uses isolated OAuth, membership and details before one whitelisted mutation', async () => {
   const launch = nativeTaskavelArguments(assignment('codex', { operations: ['read', 'update-task'], externalWriteAuthorized: true }));
   const calls = [];

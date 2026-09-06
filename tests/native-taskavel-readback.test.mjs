@@ -45,6 +45,18 @@ test('multi-task membership uses the verified contiguous two-line record format 
   assert.equal(taskavelMembershipContains(membership.replaceAll('900000002', '900000004'), 900000004), false);
 });
 
+test('membership accepts bounded bracket display labels only after the canonical status marker', () => {
+  const membership = 'Filtered tasks (2):\n\n#10 Plan synthetic delivery — Example Project / Review & QA [open] [Low Priority]\n  id: 900000004 | https://taskavel.com/tasks/900000004\n#8 Review synthetic repair — Example Project / Review & QA [completed] [codex]\n  id: 900000002 | https://taskavel.com/tasks/900000002';
+  assert.equal(taskavelMembershipContains(membership, 900000004), true);
+  assert.equal(taskavelMembershipContains(membership, 900000002), true);
+  for (const malformed of [
+    membership.replace('[open] [Low Priority]', '[Low Priority]'),
+    membership.replace('[open] [Low Priority]', '[open] Low Priority'),
+    membership.replace('[completed] [codex]', '[completed] []'),
+    membership.replace('[completed] [codex]', '[completed] [codex] trailing'),
+  ]) assert.equal(taskavelMembershipContains(malformed, 900000004), false);
+});
+
 test('missing, mismatched, duplicate and malformed membership never manufacture project identity', () => {
   for (const mutate of [
     f => { f.membership = f.membership.replaceAll('900000003', '900000004'); },

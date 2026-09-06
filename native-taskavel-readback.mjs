@@ -33,7 +33,10 @@ export function taskavelMembershipContains(membership, taskId) {
   for (let index = 0; index < lines.length; index += 2) {
     const pair = lines.slice(index, index + 2);
     const identity = pair[1]?.match(/^  id: ([1-9]\d*) \| https:\/\/taskavel\.com\/tasks\/([1-9]\d*)$/);
-    if (pair.length !== 2 || !/^#[1-9]\d* .+ — .+ \/ .+ \[(open|completed)\]$/.test(pair[0])
+    // Taskavel may append bounded display labels after its canonical status
+    // marker (for example a priority or agent label). The status marker stays
+    // required and first; arbitrary unbracketed suffixes are still rejected.
+    if (pair.length !== 2 || !/^#[1-9]\d* .+ — .+ \/ .+ \[(open|completed)\](?: \[[^\]\r\n]{1,200}\])*$/.test(pair[0])
       || !identity || identity[1] !== identity[2] || !numericId(Number(identity[1])) || ids.has(identity[1])) {
       return false;
     }
