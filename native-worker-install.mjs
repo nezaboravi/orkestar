@@ -10,7 +10,7 @@ const dependencies = ['native-solo-worker-mcp.mjs', 'native-solo-worker.mjs', 'n
   'native-worker-live.mjs', 'native-worker-stream.mjs',
   'native-worker-recovery.mjs', 'native-codex-evidence.mjs',
   'native-review-policy.mjs', 'native-worker-review.mjs',
-  'native-worker-budget.mjs', 'native-worker-ownership.mjs', 'orchestra-limits.mjs',
+  'native-worker-budget.mjs', 'native-worker-ownership.mjs', 'native-worker-prerequisites.mjs', 'orchestra-limits.mjs',
   'native-worker-readiness.mjs', 'native-tracker-operations.mjs',
   'native-solo-mirror.mjs', 'native-audit.mjs', 'native-worker-browser.mjs', 'native-worker-taskavel.mjs', 'native-taskavel-readback.mjs', 'native-taskavel-binding.mjs', 'native-worker-tracker.mjs',
   'native-worker-report.mjs', 'native-worker-summary.mjs', 'native-worker-coordination.mjs', 'report-tracker-gate.mjs', 'tracker-reconciliation.mjs',

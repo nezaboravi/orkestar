@@ -12,7 +12,8 @@ import { validateTaskavelAuthorization } from './native-worker-taskavel.mjs';
 import { nativeReviewCoverage } from './native-worker-review.mjs';
 import { MAX_WORKER_SESSIONS } from './orchestra-limits.mjs';
 import { createWorkerSessionBudget } from './native-worker-budget.mjs';
-import { validateWaveOwnership, WORKER_OWNERSHIP_ERRORS } from './native-worker-ownership.mjs';
+import { validateWaveOwnership, normalizeWorkerOwnership, WORKER_OWNERSHIP_ERRORS, WorkerOwnershipError } from './native-worker-ownership.mjs';
+import { validateWorkerPrerequisites, WORKER_PREREQUISITE_ERRORS, WorkerPrerequisiteError } from './native-worker-prerequisites.mjs';
 import { inspectNativeWorkerReadiness } from './native-worker-readiness.mjs';
 
 export const MAX_FRAME = 131072;
@@ -39,10 +40,13 @@ const taskavelAuthorization = object({ projectId: { type: ['integer', 'null'], m
   operations: { type: 'array', minItems: 1, maxItems: 7, items: { enum: ['read', 'create-project', 'create-board', 'create-task', 'update-task', 'move-task', 'add-comment'] } },
   externalWriteAuthorized: { type: 'boolean' } }, ['projectId', 'taskIds', 'operations', 'externalWriteAuthorized']);
 const taskSchema = object({ goal: string(16000), evidence: { type: 'array', minItems: 1, maxItems: 30, items: string() }, requiresWrite: { type: 'boolean' }, taskavel: taskavelAuthorization }, ['goal', 'evidence']);
-const assignmentSchema = object({ profile: { type: 'string', enum: profiles }, name: string(120), runId, contract: contractSchema, task: taskSchema });
+const prerequisiteInputSchema = object({ path: string(240), kind: { enum: ['file', 'directory'] } });
+const prerequisiteDependencySchema = object({ path: string(240), kind: { enum: ['directory'] }, access: { enum: ['read', 'write'] } });
+const prerequisitesSchema = object({ inputs: { type: 'array', maxItems: 32, items: prerequisiteInputSchema }, dependencies: { type: 'array', maxItems: 32, items: prerequisiteDependencySchema }, capabilities: { type: 'array', maxItems: 3, items: { enum: ['network', 'local-server', 'git-metadata-write'] } }, }, []);
 const ownershipSchema = object({ paths: { type: 'array', minItems: 1, maxItems: 32, items: string(240) } });
+const assignmentSchema = object({ profile: { type: 'string', enum: profiles }, name: string(120), runId, contract: contractSchema, task: taskSchema, ownership: ownershipSchema, prerequisites: prerequisitesSchema }, ['profile', 'name', 'runId', 'contract', 'task']);
 const waveAssignmentSchema = object({ profile: { type: 'string', enum: waveProfiles }, name: string(120), runId, contract: contractSchema,
-  task: taskSchema, ownership: ownershipSchema }, ['profile', 'name', 'runId', 'contract', 'task']);
+  task: taskSchema, ownership: ownershipSchema, prerequisites: prerequisitesSchema }, ['profile', 'name', 'runId', 'contract', 'task']);
 const draftSchema = object(Object.fromEntries(Object.entries(contractSchema.properties).filter(([key]) => !['id', 'hash'].includes(key))),
   ['schemaVersion', 'goal', 'required', 'localDecisions', 'outOfScope', 'discoveryPolicy', 'changeSurface']);
 const timestamp = { type: 'integer', minimum: 0 };
@@ -121,6 +125,8 @@ const failures = {
   REQUEST_FAILED: 'The worker request failed safely. No completion is inferred; inspect the scoped setup or receipt.',
   SESSION_BUDGET_EXCEEDED: 'No worker launched. This contract already reached Orkestar\'s 12-session ceiling. Reuse existing results or finish with an honest partial report.',
   WAVE_OWNERSHIP_INVALID: 'No worker launched. Every concurrent writer needs bounded, project-relative, non-overlapping ownership paths. Split overlapping work into dependent waves.',
+  WORKER_PREREQUISITE_INVALID: 'No worker launched. The declared project prerequisite is invalid, unavailable, or outside the worker’s bounded ownership. Repair the declaration or prepare it in the project, then retry. Host checks do not prove native worker sandbox access.',
+  UNSUPPORTED_CAPABILITY: 'No worker launched. This bridge cannot verify the declared capability for this native worker route. Have the conductor run a bounded verification or use an already approved role; do not broaden the worker sandbox.',
   WRITE_INTENT_REQUIRED: 'No worker launched. The project-write envelope must declare requiresWrite:true; every other project envelope must remain read-only.',
 };
 const errorCategories = new Map([
@@ -143,16 +149,23 @@ const errorCategories = new Map([
   ...['Worker CLI failed; no success inferred', 'Solo worker request failed'].map(message => [message, 'CLI_EXECUTION_FAILED']),
   ['Native worker session budget exceeded', 'SESSION_BUDGET_EXCEEDED'],
   ...Object.values(WORKER_OWNERSHIP_ERRORS).map(message => [message, 'WAVE_OWNERSHIP_INVALID']),
+  ...Object.values(WORKER_PREREQUISITE_ERRORS).filter(message => message !== WORKER_PREREQUISITE_ERRORS.capability).map(message => [message, 'WORKER_PREREQUISITE_INVALID']),
+  [WORKER_PREREQUISITE_ERRORS.capability, 'UNSUPPORTED_CAPABILITY'],
   ['Writable worker must declare project file writes', 'WRITE_INTENT_REQUIRED'],
 ]);
 function toolError(error, project) {
-  let category = errorCategories.get(error?.message) ?? 'REQUEST_FAILED';
+  let category = error instanceof WorkerOwnershipError ? 'WAVE_OWNERSHIP_INVALID'
+    : error instanceof WorkerPrerequisiteError
+      ? (error.message === WORKER_PREREQUISITE_ERRORS.capability ? 'UNSUPPORTED_CAPABILITY' : 'WORKER_PREREQUISITE_INVALID')
+      : errorCategories.get(error?.message) ?? 'REQUEST_FAILED';
   // Match only known scoped filesystem targets. Never expose native error text or paths.
   if (error?.code === 'ENOENT' && error.path === path.join(project ?? '', '.agent-orchestra/runtime/solo-observer.json')) category = 'MISSING_BINDING';
   if (error?.code === 'EEXIST' && typeof error.path === 'string'
     && path.dirname(error.path) === path.join(project ?? '', '.agent-orchestra/dispatch')
     && /^native-[a-f0-9-]{36}\.json$/.test(path.basename(error.path))) category = 'DUPLICATE_RUN';
-  return { content: [{ type: 'text', text: JSON.stringify({ status: 'FAILED', category, message: failures[category], acceptance: 'PARTIAL' }) }], isError: true };
+  const details = error instanceof WorkerPrerequisiteError ? { prerequisite: error.details }
+    : error instanceof WorkerOwnershipError ? { ownership: error.details } : {};
+  return { content: [{ type: 'text', text: JSON.stringify({ status: 'FAILED', category, message: failures[category], acceptance: 'PARTIAL', ...details }) }], isError: true };
 }
 
 function contractPath(project, contract, create = false) {
@@ -255,21 +268,24 @@ export function createWorkerMcpHandler({ project, harness }, { api = workerApi, 
             if (validateTaskContract(assignment.contract).hash !== contract.hash) throw new Error('Stored immutable contract mismatch');
             validateWriteIntent(assignment);
           }
+          validateWorkerPrerequisites({ project, assignments });
           result = await createWorkerSessionBudget({ project, contractId: contract.id })
             .withReservation(assignments.length, () => Promise.all(assignments.map(launch)));
         } else {
-        const contract = validateTaskContract(args.contract);
+        const normalized = normalizeWorkerOwnership(args);
+        const contract = validateTaskContract(normalized.contract);
         storedContract(project, contract);
-        validateWriteIntent(args);
-        if (args.profile === 'project-audit') {
+        validateWriteIntent(normalized);
+        validateWorkerPrerequisites({ project, assignments: [normalized] });
+        if (normalized.profile === 'project-audit') {
           const coverage = await nativeReviewCoverage({ project, harness, contractId: contract.id }, { collect: api.collectNativeSoloWorkerResult });
           if (!coverage.ready) return respond({ content: [{ type: 'text', text: JSON.stringify({ code: 'REVIEW_COVERAGE_REQUIRED', message: 'No auditor launched. Independent review coverage is incomplete.', reviewCoverage: coverage }) }], isError: true });
         }
-        if (args.profile === 'taskavel') {
-          validateTaskavelAuthorization(args.task.taskavel);
+        if (normalized.profile === 'taskavel') {
+          validateTaskavelAuthorization(normalized.task.taskavel);
         }
         result = await createWorkerSessionBudget({ project, contractId: contract.id })
-          .withReservation(1, () => launch({ ...args, contract }));
+          .withReservation(1, () => launch({ ...normalized, contract }));
         }
       } else if (tool.name === 'worker_wait') {
         const controller = new AbortController(); waits.set(id, controller);

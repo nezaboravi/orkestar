@@ -173,6 +173,48 @@ Native Solo workers cannot resume a prior session; requesting continuation
 readiness returns BLOCKED. Existing running sessions need restarting after an
 update to load the new bridge and instructions.
 
+## Declared dispatch prerequisites
+
+Single and wave assignments accept optional `prerequisites` alongside `task`:
+
+```json
+{
+  "prerequisites": {
+    "inputs": [{"path": "docs/review-input.md", "kind": "file"}],
+    "dependencies": [{"path": "vendor", "kind": "directory", "access": "read"}],
+    "capabilities": []
+  }
+}
+```
+
+Paths must be bounded and project-relative. Inputs must exist with the declared
+type and host read access; dependency directories must exist. Symlink paths
+are rejected. A dependency with `access: "write"` additionally requires the
+`project-write` profile and containment in declared `ownership.paths`. Ownership
+may also be supplied for single dispatch. Explicit Git metadata writes are
+rejected; prepared isolated checkouts under `.agent-orchestra` remain allowed.
+
+The bridge checks every declared prerequisite before reserving worker sessions
+or launching any member of a wave. Errors identify the assignment and relevant
+declaration index without echoing raw filesystem errors. Prepare a missing
+checkout or dependency through already-authorized conductor tools and verify
+the change before retrying. Launch failures after this validation retain the
+existing receipt and budget behavior; this is not transactional process startup.
+
+`capabilities` can declare `network`, `local-server` or `git-metadata-write`.
+The bridge rejects those requests before paid dispatch; it does not grant these
+capabilities. Use an already-authorized conductor path for bounded checks that
+need them, or report the blocker. Browser-gateway and Taskavel access keep their
+separate existing authorization and readiness checks.
+
+These are optional, declared host-side checks. They do not inspect paths in
+task prose, discover every dependency, install packages, or prove a worker's
+sandbox can run the requested command. A passing preflight is not a test pass
+or application acceptance. Calls that omit prerequisites perform no prerequisite
+checks; supplied ownership declarations still undergo ownership validation.
+Prerequisites are bridge validation metadata; include the paths the worker
+needs in its task instructions as well. They do not replace the worker prompt.
+
 ## Native interactive conductor
 
 The MAIN process uses the selected CLI's native interactive interface. This applies to Codex, Claude Code, Cursor Agent, Kimi and OpenCode. The registered **Orkestar Worker** generic tool launches a small package-local adapter, which passes the Solo terminal directly to the verified CLI binary. Built-in Solo agent defaults cannot inject a different binary or additional bypass flags into this route.

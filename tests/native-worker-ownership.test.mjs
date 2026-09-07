@@ -89,3 +89,16 @@ test('the wave and each ownership declaration are bounded', () => {
     assignment('Reader', undefined, false),
   ]), error => error.message === WORKER_OWNERSHIP_ERRORS.declaration);
 });
+
+test('read-only ownership may describe Git metadata while writers cannot own it', () => {
+  assert.doesNotThrow(() => validateWaveOwnership([
+    assignment('Reader', ['.git/HEAD'], false), assignment('Other reader', undefined, false),
+  ]));
+  for (const path of ['.git', '.GIT/worktrees/pr406', '.agent-orchestra/prepared/.Git/config']) {
+    assert.throws(() => validateWaveOwnership([assignment('Writer', [path]), assignment('Reader', undefined, false)]),
+      error => error.message === WORKER_OWNERSHIP_ERRORS.git);
+  }
+  assert.throws(() => validateWaveOwnership([
+    assignment('Writer', ['safe/path', 'safe/path', '.GIT/objects']), assignment('Reader', undefined, false),
+  ]), error => error.message === WORKER_OWNERSHIP_ERRORS.git && error.details?.pathIndex === 2);
+});

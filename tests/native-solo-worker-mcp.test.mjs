@@ -319,6 +319,76 @@ test('a writer wave requires safe disjoint ownership before any launch', async (
   assert.deepEqual(launches.map(item => item.task.ownership.paths), [['app/Models'], ['resources/views']]);
 });
 
+test('declared prerequisites fail closed before single or whole-wave reservation and launch', async t => {
+  const root = project(), launches = [];
+  fs.mkdirSync(path.join(root, 'work')); fs.mkdirSync(path.join(root, 'other')); fs.mkdirSync(path.join(root, 'NonGit')); fs.mkdirSync(path.join(root, 'input')); fs.mkdirSync(path.join(root, '.GIT'));
+  fs.writeFileSync(path.join(root, 'input', 'plan.md'), 'bounded input');
+  const handle = createWorkerMcpHandler({ project: root, harness: 'codex' }, { api: {
+    dispatchNativeSoloWorker: options => { launches.push(options); return { processId: launches.length, acceptance: 'PARTIAL' }; },
+  } });
+  await ready(handle);
+  const contract = JSON.parse((await handle(call(2, 'worker_contract', draft))).result.content[0].text);
+  const writer = (index, prerequisites) => ({ profile: 'project-write', name: `Writer ${index}`,
+    runId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, contract,
+    task: { goal: 'Apply bounded repair', evidence: ['Repair evidence'], requiresWrite: true }, ownership: { paths: ['work'] }, prerequisites });
+  const valid = { inputs: [{ path: 'input/plan.md', kind: 'file' }], dependencies: [{ path: 'work', kind: 'directory', access: 'write' }] };
+  assert.equal((await handle(call(3, 'worker_dispatch', writer(1, valid)))).result.isError, false);
+  assert.equal(launches.length, 1);
+  for (const prerequisites of [
+    { inputs: [{ path: 'input/missing.md', kind: 'file' }] },
+    { dependencies: [{ path: 'input', kind: 'directory', access: 'write' }] },
+    { capabilities: ['network'] }, { capabilities: ['local-server'] }, { capabilities: ['git-metadata-write'] },
+    { dependencies: [{ path: '.git', kind: 'directory', access: 'write' }] },
+  ]) {
+    const response = await handle(call(4, 'worker_dispatch', writer(launches.length + 2, prerequisites)));
+    assert.equal(response.result.isError, true); assert.equal(launches.length, 1);
+    const body = JSON.parse(response.result.content[0].text);
+    assert.ok(['WORKER_PREREQUISITE_INVALID', 'UNSUPPORTED_CAPABILITY'].includes(body.category));
+    assert.equal(body.prerequisite.assignmentIndex, 0);
+    assert.doesNotMatch(JSON.stringify(body), /missing\.md|input\/|\.git/);
+  }
+  for (const metadataPath of ['.GIT', '.Git']) {
+    const response = await handle(call(4, 'worker_dispatch', { ...writer(launches.length + 2, { dependencies: [{ path: metadataPath, kind: 'directory', access: 'write' }] }), ownership: { paths: ['safe/path', metadataPath] } }));
+    const body = JSON.parse(response.result.content[0].text);
+    assert.equal(body.category, 'WAVE_OWNERSHIP_INVALID'); assert.deepEqual(body.ownership, { pathIndex: 1, reason: 'git-metadata-write' }); assert.equal(launches.length, 1);
+  }
+  const assignments = [writer(20, valid), { ...writer(21, { inputs: [{ path: '../outside', kind: 'file' }] }), ownership: { paths: ['other'] } }];
+  const wave = await handle(call(5, 'worker_dispatch_wave', { assignments }));
+  const body = JSON.parse(wave.result.content[0].text);
+  assert.equal(body.category, 'WORKER_PREREQUISITE_INVALID'); assert.equal(body.prerequisite.assignmentIndex, 1);
+  assert.equal(launches.length, 1);
+  const validWave = await handle(call(6, 'worker_dispatch_wave', { assignments: [writer(30, valid), { ...writer(31, valid), ownership: { paths: ['other'] }, prerequisites: { dependencies: [{ path: 'other', kind: 'directory', access: 'write' }] } }] }));
+  assert.equal(validWave.result.isError, false); assert.equal(launches.length, 3);
+  const metadataWave = await handle(call(6, 'worker_dispatch_wave', { assignments: [writer(32, valid), { ...writer(33, { dependencies: [{ path: '.Git', kind: 'directory', access: 'write' }] }), ownership: { paths: ['safe/path', '.Git'] } }] }));
+  const metadataWaveBody = JSON.parse(metadataWave.result.content[0].text);
+  assert.equal(metadataWaveBody.category, 'WAVE_OWNERSHIP_INVALID'); assert.deepEqual(metadataWaveBody.ownership, { assignmentIndex: 1, pathIndex: 1, reason: 'git-metadata-write' }); assert.equal(launches.length, 3);
+  const reader = await handle(call(6, 'worker_dispatch', { profile: 'project-read', name: 'Git reader', runId: '00000000-0000-4000-8000-000000000099', contract,
+    task: { goal: 'Read Git metadata only', evidence: ['Git metadata'] }, ownership: { paths: ['.Git/HEAD'] } }));
+  assert.equal(reader.result.isError, false); assert.equal(launches.length, 4);
+  const mixedCase = await handle(call(6, 'worker_dispatch', { ...writer(50, { dependencies: [{ path: 'NonGit', kind: 'directory', access: 'write' }] }), ownership: { paths: ['NonGit'] } }));
+  assert.equal(mixedCase.result.isError, false); assert.equal(launches.length, 5);
+  const outside = project();
+  try { fs.symlinkSync(outside, path.join(root, 'linked'), 'dir'); }
+  catch (error) { if (error.code === 'EPERM') return t.skip('Symlinks unavailable'); throw error; }
+  const symlink = await handle(call(7, 'worker_dispatch', writer(40, { inputs: [{ path: 'linked', kind: 'directory' }] })));
+  assert.equal(JSON.parse(symlink.result.content[0].text).category, 'WORKER_PREREQUISITE_INVALID'); assert.equal(launches.length, 5);
+});
+
+test('ownership failures return indexed safe diagnostics without launching a wave', async () => {
+  const root = project(), launches = [];
+  const handle = createWorkerMcpHandler({ project: root, harness: 'codex' }, { api: { dispatchNativeSoloWorker: options => { launches.push(options); } } });
+  await ready(handle);
+  const contract = JSON.parse((await handle(call(2, 'worker_contract', draft))).result.content[0].text);
+  const writer = (index, paths) => ({ profile: 'project-write', name: `Writer ${index}`,
+    runId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, contract,
+    task: { goal: 'Write bounded output', evidence: ['Output'], requiresWrite: true }, ownership: { paths } });
+  const response = await handle(call(3, 'worker_dispatch_wave', { assignments: [writer(1, ['app']), writer(2, ['/tmp/foreign'])] }));
+  const body = JSON.parse(response.result.content[0].text);
+  assert.equal(body.category, 'WAVE_OWNERSHIP_INVALID');
+  assert.deepEqual(body.ownership, { assignmentIndex: 1, pathIndex: 0, reason: 'project-relative' });
+  assert.equal(launches.length, 0); assert.doesNotMatch(JSON.stringify(body), /tmp|foreign/);
+});
+
 test('ui-verify is the only browser profile and missing setup returns an actionable safe category', async () => {
   const root = project(), calls = [];
   const handle = createWorkerMcpHandler({ project: root, harness: 'claude' }, { api: { dispatchNativeSoloWorker: options => {

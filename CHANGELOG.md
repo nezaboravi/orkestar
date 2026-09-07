@@ -1,5 +1,23 @@
 # Release notes
 
+## Unreleased — dispatch prerequisites
+
+- Single and wave dispatches can declare required input files, dependency
+  directories and capabilities. Invalid declared prerequisites stop the whole
+  wave before worker-session reservation or launch.
+- Ownership and prerequisite errors identify the failing declaration without
+  exposing raw filesystem errors. Unsupported declared network, local-server
+  and Git metadata write requirements stop before paid dispatch.
+- Conductor guidance calls for verified checkout/dependency preparation before
+  retrying a blocked assignment and keeps deterministic formatting with the
+  original builder or an already-authorized conductor path.
+- Review guidance requires the actual scope authority behind blocking
+  expectations and distinguishes existing risks, new regressions and missing
+  required evidence. Security/performance and acceptance gates are unchanged.
+- These optional host-side checks cannot prove sandbox access or discover
+  undeclared dependencies. No new percentage saving is claimed. Installation
+  into active project sessions is deferred until those sessions can safely end.
+
 ## 0.1.5 — 2026-09-07
 
 ### Lower coordination overhead

@@ -135,6 +135,34 @@ verification. Do not invent a hard stop when the user asked to finish the work.
 
 ### Project-specific build and browser prerequisites
 
+Before paid dispatch, prepare the actual checkout and declare its required inputs,
+dependency directories and capabilities in the assignment's `prerequisites`.
+Use bounded project-relative paths for both single assignments and waves; a
+path mentioned only in prose is not checked. An isolated checkout needs its own
+verified dependencies and accessible evidence. Prepare Git worktrees through
+already-authorized conductor tools before assigning implementation; a worker
+cannot create protected Git metadata or use an external temporary checkout as
+a writable project root. Do not copy secrets into prerequisite artifacts.
+
+Codex shell workers run without network access or local server sockets. Declare
+`network`, `local-server` or `git-metadata-write` when a requested check requires
+one; these declarations stop dispatch rather than granting access. Database,
+browser-test and parallel-analysis commands may need sockets even when their
+purpose is local verification. Obtain bounded evidence through an already
+authorized conductor execution path when available, or report the precise
+missing capability. The conductor must have its own existing authorization for
+that check; a worker must never bypass its denied action through another tool.
+Host file access checks cannot prove the worker's sandbox permits a command.
+
+Treat a missing dependency, cache-write denial or socket restriction as an
+environment blocker, not a code defect. Do not launch a replacement until the
+specific prerequisite has changed and that change is verified. Give the next
+worker the relevant blocked result and preparation evidence. Keep formatting
+with the original builder; a deterministic affected-file formatter may run
+directly only where existing conductor permissions and project rules allow it.
+Inspect its diff and rerun affected checks after an actual change; do not start
+a paid worker solely to repeat a known formatter command.
+
 Before treating a running Vite/dev server as a build blocker, verify its owning
 project from the process working directory and the target project's `public/hot`
 file (or the stack's equivalent). A listener on port 5173 alone does not identify

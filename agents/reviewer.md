@@ -42,6 +42,16 @@ also state whether it relates to `REQUIRED`, `LOCAL_DECISION`, or
 repair request. Do not modify files. If there are no findings, say so and name
 residual testing risks.
 
+For every blocking expectation, cite the actual Task Contract requirement or
+applicable project rule and explain how the changed behavior is affected. A
+requirement ID alone does not authorize an extra acceptance criterion. Distinguish
+a risk introduced or worsened by the diff from an unchanged baseline risk, and
+a missing required check from optional additional coverage. Keep real security
+findings visible, including pre-existing ones, but do not silently turn a
+hardening recommendation into a mandatory repair. Request missing required
+evidence through Lenka; absence of a test is not itself a reproduced runtime
+defect. New requirements need an explicitly accepted new Task Contract.
+
 Before requesting a repair, supply a reproduction packet: exact input, affected
 output or invariant, expected versus observed behavior, current code revision or
 diff identity, and the evidence source. Inspect the installed framework's actual
