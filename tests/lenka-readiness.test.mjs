@@ -25,3 +25,17 @@ test('Solo readiness is printed only after preparation and verified launch succe
     assert.equal(lines.filter(line => line === 'Lenka is ready.').length, 1);
   } finally { console.log = original; }
 });
+
+test('UI-only adapters report missing integration, not Solo MCP connected', async () => {
+  const log = console.log; const warn = console.warn; const lines = [];
+  console.log = console.warn = value => lines.push(String(value));
+  try {
+    await launchInstalledRuntime({ ...runtime, harness: 'kimi' }, options, {
+      refreshProjectRuntime: () => ({ changed: 0 }), prepareNativeSolo: async () => null,
+      launchInSolo: () => ({ project: { name: 'fixture' }, process: { id: 1, name: 'Lenka' },
+        mcp: { available: false, warning: 'Kimi native editor only; Solo MCP is unavailable' }, reused: false }),
+    });
+    assert.match(lines.join('\n'), /WARNING: Kimi native editor only/);
+    assert.doesNotMatch(lines.join('\n'), /Solo MCP: connected/);
+  } finally { console.log = log; console.warn = warn; }
+});

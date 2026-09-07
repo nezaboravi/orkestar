@@ -7,7 +7,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 import { liveWorkerTool } from './native-worker-live.mjs';
-import { soloCodexInstructions } from './harness-launcher.mjs';
+import { interactiveArgs } from './native-interactive-launcher.mjs';
 
 function bundledSoloCandidates(platform = process.platform, home = os.homedir(), environment = process.env) {
   const candidates = [];
@@ -206,30 +206,14 @@ function defaultInvoke(binary, args, cwd) {
 }
 
 function selectAgentTool(agentTools, harness) {
-  const enabled = agentTools.filter((tool) => tool.enabled !== false);
-  if (harness === 'codex') return liveWorkerTool(enabled);
-  const native = enabled.find((tool) => tool.toolType === harness);
-  if (native) return native;
-  if (harness === 'cursor') {
-    return enabled.find((tool) => {
-      if (tool.toolType !== 'generic') return false;
-      const command = String(tool.command || '').trim().split(/\s+/)[0];
-      return String(tool.name || '').trim().toLowerCase() === 'cursor' || path.basename(command) === 'agent';
-    }) || null;
-  }
-  return null;
+  if (!['codex', 'claude', 'cursor', 'kimi', 'opencode'].includes(harness)) throw new Error('Unsupported Solo harness');
+  // Built-in Solo tools can prepend their own model or bypass flags. Use only
+  // the checked, argument-free Node tool and the verified Orkestar route.
+  return liveWorkerTool(agentTools);
 }
 
 function conductorArgs(runtime, projectPath) {
-  const script = path.join(projectPath, '.agent-orchestra', 'worker', 'native-conductor-live.mjs');
-  const stat = fs.lstatSync(script);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 256 * 1024) throw new Error('Installed readable Lenka conductor is missing; run lenka up to refresh the project');
-  const instructions = soloCodexInstructions(projectPath);
-  const marker = instructions.match(/ORKESTAR_SOLO_CONDUCTOR_[a-f0-9]{64}/)?.[0];
-  if (!marker) throw new Error('Installed readable Lenka conductor marker is missing');
-  return [script, '--project', projectPath, '--codex', runtime.binary, '--model', runtime.manifest.primary.model,
-    '--instructions-base64', Buffer.from(instructions).toString('base64'), '--marker', marker,
-    ...(runtime.manifest.primary.reasoningEffort ? ['--effort', runtime.manifest.primary.reasoningEffort] : [])];
+  return interactiveArgs(runtime, projectPath);
 }
 
 function soloProcessName(harness) {
@@ -248,7 +232,7 @@ function matchesSoloRuntime(processEntry, runtime, name = soloProcessName(runtim
   const model = String(runtime.manifest.primary.model || '');
   const executable = tool ? String(tool.command || '').trim() : String(runtime.binary || '');
   if (!executable || /[\r\n\x00]/.test(executable) || (tool && (tool.enabled === false
-    || !(tool.toolType === runtime.harness || ['cursor', 'codex'].includes(runtime.harness) && tool.toolType === 'generic')))) return false;
+    || !(tool.toolType === runtime.harness || tool.toolType === 'generic')))) return false;
   const prefix = command.startsWith(`${executable} `) || command.startsWith(`${JSON.stringify(executable)} `)
     || command.startsWith(`'${executable.replaceAll("'", "'\\''")}' `);
   const modelPattern = new RegExp(`(?:^|\\s)--model(?:=|\\s+)(?:${escapeRegularExpression(model)}|"${escapeRegularExpression(model)}"|'${escapeRegularExpression(model)}')(?=\\s|$)`);
@@ -362,9 +346,11 @@ function launchInSolo(runtime, options, dependencies = {}) {
   ensureSoloReady(binary, projectPath, invoke, activate, dependencies.wait || pause);
   const soloMcp = dependencies.soloMcp || findSoloMcp(binary, dependencies);
   const verifyMcp = dependencies.verifyMcp || verifySoloMcpReady;
-  verifyMcp(soloMcp, { runner: dependencies.runner || spawnSync });
+  if (runtime.harness !== 'kimi') verifyMcp(soloMcp, { runner: dependencies.runner || spawnSync });
   const configureMcp = dependencies.configureMcp || configureSoloMcp;
-  const mcp = configureMcp(runtime.harness, runtime.binary, soloMcp, {
+  const mcp = runtime.harness === 'kimi'
+    ? { changed: false, available: false, warning: 'Kimi opens its native editor only; automatic Solo MCP and visible-worker integration are not verified for this CLI.' }
+    : configureMcp(runtime.harness, runtime.binary, soloMcp, {
     home: dependencies.home || os.homedir(),
     runner: dependencies.runner || spawnSync,
   });
@@ -400,19 +386,15 @@ function launchInSolo(runtime, options, dependencies = {}) {
     // Older Solo builds may not expose process inventory; spawning still works.
   }
   const agentTools = decodeSoloJson(invoke(binary, ['agents', 'list'], projectPath), 'Solo agent tool list').agentTools || [];
-  if (['codex', 'claude'].includes(runtime.harness)) liveWorkerTool(agentTools);
   const tool = selectAgentTool(agentTools, runtime.harness);
   if (!tool) throw new Error(`Solo has no enabled ${runtime.harness} agent tool on this machine`);
-  const useConductor = runtime.harness === 'codex';
-  const launchArgs = useConductor
-    ? (dependencies.conductorArgs || conductorArgs)(runtime, projectPath)
-    : (dependencies.launcherArgs || (() => { throw new Error('Missing Solo launcher arguments'); }))(runtime.harness, runtime.manifest.primary.model,
-      projectPath, runtime.manifest.primary.reasoningEffort || null, { workspace: 'solo' });
-  const conductorMarker = launchArgs.join(' ').match(/ORKESTAR_SOLO_CONDUCTOR_[a-f0-9]{64}/)?.[0];
-  const staleActive = conductorMarker && existingProcesses.find(entry =>
-    matchesSoloRuntime(entry, runtime, processName, tool, project.id)
+  const launchArgs = (dependencies.conductorArgs || conductorArgs)(runtime, projectPath);
+  const conductorMarker = launchArgs.find(arg => /^ORKESTAR_NATIVE_UI_[a-f0-9]{64}$/.test(arg));
+  if (!conductorMarker) throw new Error('Native interactive launcher identity is missing');
+  const staleActive = existingProcesses.find(entry => entry.kind === 'agent' && entry.projectId === project.id
+    && [processName, processName.replace(' · Solo team', ''), 'Lenka — Orkestar'].includes(entry.name)
     && ['running', 'starting'].includes(entry.status) && !String(entry.command).includes(conductorMarker));
-  if (staleActive) throw new Error('An older Lenka session is still running in Solo. Stop that session before launching the updated conductor; existing work was preserved.');
+  if (staleActive) throw new Error(`An older Lenka session is still running in Solo (process ${staleActive.id}). Stop that session before launching the updated conductor; existing work was preserved.`);
   const matchingProcesses = existingProcesses
     .filter((entry) => matchesSoloRuntime(entry, runtime, processName, tool, project.id))
     .filter(entry => !conductorMarker || String(entry.command).includes(conductorMarker))

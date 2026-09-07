@@ -16,11 +16,13 @@ test('Solo selects the enabled tool matching the verified harness', () => {
   ], 'codex').id, 99);
 });
 
-test('Solo accepts a generic Cursor tool when this Solo version cannot classify agent CLI', () => {
-  assert.equal(selectAgentTool([
-    { id: 13, name: 'Generic shell', command: 'sh', toolType: 'generic', enabled: true },
-    { id: 14, name: 'Cursor', command: '/Users/demo/.local/bin/agent', toolType: 'generic', enabled: true },
-  ], 'cursor').id, 14);
+test('Every harness uses the checked generic tool, never built-in defaults', () => {
+  for (const harness of ['codex', 'claude', 'cursor', 'opencode', 'kimi']) {
+    assert.equal(selectAgentTool([readableTool,
+      { id: 14, name: harness, command: `${harness} --dangerous`, toolType: harness, enabled: true },
+    ], harness).id, 99);
+    assert.throws(() => selectAgentTool([], harness), /one-time setup/);
+  }
 });
 
 test('Solo MCP is merged into OpenCode without replacing existing servers', () => {
@@ -159,7 +161,7 @@ test('Solo MCP preflight gives the exact one-time recovery step when disabled', 
   }), /Solo Settings → MCP, turn on MCP server/);
 });
 
-test('Solo Codex launch imports the project and always uses the readable conductor', () => {
+test('Solo Codex launch imports the project and always uses the native interactive conductor', () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), 'orkestar-solo-'));
   const canonicalProject = fs.realpathSync(project);
   const calls = [];
@@ -186,7 +188,7 @@ test('Solo Codex launch imports the project and always uses the readable conduct
     conductorArgs: (runtime, cwd) => {
       assert.equal(cwd, canonicalProject);
       assert.equal(runtime.manifest.primary.model, 'gpt-example');
-      return ['/installed/native-conductor-live.mjs', '--model', 'gpt-example', `ORKESTAR_SOLO_CONDUCTOR_${'b'.repeat(64)}`];
+      return ['/installed/native-interactive-launcher.mjs', '--model', 'gpt-example', `ORKESTAR_NATIVE_UI_${'b'.repeat(64)}`];
     },
     invoke(binary, args, cwd) {
       calls.push({ binary, args, cwd });
@@ -199,8 +201,8 @@ test('Solo Codex launch imports the project and always uses the readable conduct
   assert.deepEqual(calls[5].args, [
     'processes', 'spawn', '--project-id', '42', '--kind', 'agent',
     '--agent-tool-id', '99', '--name', 'Lenka — Codex · Solo team',
-    '--arg', '/installed/native-conductor-live.mjs', '--arg', '--model', '--arg', 'gpt-example',
-    '--arg', `ORKESTAR_SOLO_CONDUCTOR_${'b'.repeat(64)}`,
+    '--arg', '/installed/native-interactive-launcher.mjs', '--arg', '--model', '--arg', 'gpt-example',
+    '--arg', `ORKESTAR_NATIVE_UI_${'b'.repeat(64)}`,
   ]);
   assert.deepEqual(opened, [42]);
 });
@@ -210,6 +212,26 @@ test('Solo process names identify the selected AI service', () => {
   assert.equal(soloProcessName('codex'), 'Lenka — Codex · Solo team');
 });
 
+test('Kimi native editor launch does not pretend to configure an unsupported Solo MCP bridge', () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), 'solo-kimi-ui-'));
+  const responses = [{ ready: true }, { projects: [{ id: 42, path: project }] },
+    { processes: [] }, { agentTools: [readableTool] }, { process: { id: 19, name: soloProcessName('kimi') } }];
+  const calls = [];
+  const result = launchInSolo({ harness: 'kimi', binary: '/verified/kimi', manifest: { primary: { model: 'fixture' } } }, { project }, {
+    binary: '/verified/solo', soloMcp: null, openSolo: () => true,
+    verifyMcp: () => { throw new Error('Kimi cannot verify Solo MCP'); },
+    configureMcp: () => { throw new Error('Kimi cannot configure Solo MCP'); },
+    conductorArgs: () => ['--model', 'fixture', `ORKESTAR_NATIVE_UI_${'a'.repeat(64)}`],
+    verifyStartup: () => ({ status: 'running' }),
+    invoke(binary, args) { calls.push(args); return { status: 0, stdout: JSON.stringify({ ok: true, data: responses.shift() }) }; },
+  });
+  assert.equal(result.process.id, 19);
+  assert.equal(result.mcp.available, false);
+  assert.match(result.mcp.warning, /native editor only/);
+  assert.ok(calls.at(-1).includes('spawn'));
+  assert.ok(calls.at(-1).includes(String(readableTool.id)));
+});
+
 test('Solo reuses an already running matching Lenka process', () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), 'orkestar-solo-reuse-'));
   const opened = [];
@@ -217,8 +239,8 @@ test('Solo reuses an already running matching Lenka process', () => {
   const responses = [
     { ready: true },
     { projects: [{ id: 42, name: 'demo', path: project }] },
-    { processes: [{ id: 99, projectId: 42, name: 'Lenka — Cursor Agent · Solo team', kind: 'agent', command: '/verified/agent --model auto --force', status: 'running' }] },
-    { agentTools: [{ id: 14, toolType: 'generic', name: 'Cursor', command: '/verified/agent', enabled: true }] },
+    { processes: [{ id: 99, projectId: 42, name: 'Lenka — Cursor Agent · Solo team', kind: 'agent', command: `${readableTool.command} --model auto ORKESTAR_NATIVE_UI_${'a'.repeat(64)}`, status: 'running' }] },
+    { agentTools: [readableTool] },
   ];
   const runtime = { harness: 'cursor', binary: '/verified/agent', manifest: { primary: { model: 'auto' } } };
   const result = launchInSolo(runtime, { project }, {
@@ -228,7 +250,7 @@ test('Solo reuses an already running matching Lenka process', () => {
     configureMcp: () => ({ changed: false, target: 'test' }),
     openSolo: (projectId) => { opened.push(projectId); return true; },
     ensureCursorTrust: () => ({ reused: true }),
-    launcherArgs: () => ['--model', 'auto'],
+    conductorArgs: () => ['--model', 'auto', `ORKESTAR_NATIVE_UI_${'a'.repeat(64)}`],
     invoke(binary, args) {
       calls.push(args);
       return { status: 0, stdout: JSON.stringify({ ok: true, data: responses.shift() }), stderr: '' };
@@ -240,14 +262,14 @@ test('Solo reuses an already running matching Lenka process', () => {
   assert.equal(calls.some((args) => args.includes('spawn')), false);
 });
 
-test('Solo renames and restarts the newest stopped legacy Lenka process', () => {
+test('Solo renames and restarts a stopped process only with current native identity', () => {
   const project = fs.mkdtempSync(path.join(os.tmpdir(), 'orkestar-solo-restart-'));
   const calls = [];
   const responses = [
     { ready: true },
     { projects: [{ id: 42, name: 'demo', path: project }] },
-    { processes: [{ id: 99, projectId: 42, name: 'Lenka — Orkestar', kind: 'agent', command: '/verified/agent --model auto --force', status: 'stopped' }] },
-    { agentTools: [{ id: 14, toolType: 'generic', name: 'Cursor', command: '/verified/agent', enabled: true }] },
+    { processes: [{ id: 99, projectId: 42, name: 'Lenka — Orkestar', kind: 'agent', command: `${readableTool.command} --model auto ORKESTAR_NATIVE_UI_${'a'.repeat(64)}`, status: 'stopped' }] },
+    { agentTools: [readableTool] },
     { process: { id: 99, name: 'Lenka — Cursor Agent · Solo team', status: 'stopped' } },
     { process: { id: 99, status: 'starting' } },
   ];
@@ -259,7 +281,7 @@ test('Solo renames and restarts the newest stopped legacy Lenka process', () => 
     configureMcp: () => ({ changed: false, target: 'test' }),
     openSolo: () => true,
     ensureCursorTrust: () => ({ reused: true }),
-    launcherArgs: () => ['--model', 'auto'],
+    conductorArgs: () => ['--model', 'auto', `ORKESTAR_NATIVE_UI_${'a'.repeat(64)}`],
     verifyStartup: () => ({ id: 99, status: 'running' }),
     invoke(binary, args) {
       calls.push(args);
@@ -318,7 +340,7 @@ test('Solo matches its selected native command instead of a different PATH insta
 test('Solo restarts an exited Codex conductor bound to its distinct bundled binary', () => {
   const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'solo-native-restart-')));
   const tool = readableTool;
-  const marker = `ORKESTAR_SOLO_CONDUCTOR_${'a'.repeat(64)}`;
+  const marker = `ORKESTAR_NATIVE_UI_${'a'.repeat(64)}`;
   const existing = { id: 166, projectId: 30, name: soloProcessName('codex'), kind: 'agent', status: 'exited', command: `${tool.command} --model gpt-example ${marker}` };
   const responses = [{ ready: true }, { projects: [{ id: 30, path: project }] }, { processes: [existing] },
     { agentTools: [tool] }, { process: { ...existing, status: 'starting' } }];
@@ -333,20 +355,21 @@ test('Solo restarts an exited Codex conductor bound to its distinct bundled bina
   assert.equal(calls.some(args => args.includes('spawn')), false);
 });
 
-test('Solo never reuses a Codex process with missing or outdated conductor instructions', () => {
+test('Solo never reuses any harness legacy process or silently stops it', () => {
+  for (const harness of ['codex', 'claude', 'cursor', 'opencode', 'kimi']) {
   for (const status of ['running', 'stopped']) {
     const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'solo-stale-conductor-')));
     const tool = readableTool;
-    const existing = { id: 166, projectId: 30, name: soloProcessName('codex'), kind: 'agent', status,
-      command: `${tool.command} --model gpt-example --enable multi_agent` };
-    const marker = `ORKESTAR_SOLO_CONDUCTOR_${'a'.repeat(64)}`;
+    const existing = { id: 166, projectId: 30, name: soloProcessName(harness), kind: 'agent', status,
+      command: `/old/native/${harness} --model old-model --enable multi_agent` };
+    const marker = `ORKESTAR_NATIVE_UI_${'a'.repeat(64)}`;
     const responses = [{ ready: true }, { projects: [{ id: 30, path: project }] }, { processes: [existing] },
       { agentTools: [tool] }, { process: { id: 167, kind: 'agent', status: 'running' } }];
     const calls = [];
-    const run = () => launchInSolo({ harness: 'codex', binary: '/verified/codex',
+    const run = () => launchInSolo({ harness, binary: `/verified/${harness}`,
       manifest: { primary: { model: 'gpt-example' } } }, { project }, {
       binary: '/verified/solo', soloMcp: '/verified/mcp', verifyMcp: () => true,
-      configureMcp: () => ({}), openSolo: () => true, verifyStartup: () => ({ status: 'running' }),
+      configureMcp: () => ({}), ensureCursorTrust: () => ({}), openSolo: () => true, verifyStartup: () => ({ status: 'running' }),
       conductorArgs: () => ['--model', 'gpt-example', marker],
       invoke(binary, args) { calls.push(args); return { status: 0, stdout: JSON.stringify({ ok: true, data: responses.shift() }) }; },
     });
@@ -360,6 +383,7 @@ test('Solo never reuses a Codex process with missing or outdated conductor instr
       assert.equal(calls.some(args => args.includes('spawn')), true);
     }
     assert.equal(calls.some(args => args.includes('stop') || args.includes('start') || args.includes('delete')), false);
+  }
   }
 });
 

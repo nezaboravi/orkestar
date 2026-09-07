@@ -363,12 +363,12 @@ async function launchInstalledRuntime(runtime, options, dependencies = {}) {
       nodeBinary: process.execPath, sourceRoot: repoRoot });
     const observation = native?.observer;
     const soloDependencies = { locate: executable, bindObserver: observation ? bindSoloObserver : null };
-    if (runtime.harness !== 'codex') soloDependencies.launcherArgs = launcherArgs;
     const launched = (dependencies.launchInSolo ?? launchInSolo)(runtime, options, soloDependencies);
     console.log('Lenka is ready.');
     console.log(`Workspace: Solo (${launched.project.name})`);
     console.log(`Agent: ${launched.process.name} (${runtime.harness})`);
-    console.log(`Solo MCP: connected${launched.mcp.changed ? ' now' : ''}`);
+    if (launched.mcp.available === false) console.warn(`WARNING: ${launched.mcp.warning}`);
+    else console.log(`Solo MCP: connected${launched.mcp.changed ? ' now' : ''}`);
     console.log(`Process: ${launched.process.id}`);
     console.log(`Session: ${launched.reused ? 'reused' : 'new'}`);
     if (observation?.changed && launched.reused) console.log('Observer updated: start a new native session to load the hooks; current work was preserved.');

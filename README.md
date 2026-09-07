@@ -38,10 +38,12 @@ explain where to paste it.
 
 For Codex, Lenka prefers **Astra at medium** when the account verifies access.
 Implementation, testing, and review keep their separate model routes.
-The Codex Solo panel shows readable messages and progress. Enter sends a
-request or steers current work; `/stop` interrupts; `/details` toggles diagnostics.
-Questions and approvals show their available responses in the panel. Secret
-input requests are rejected because this terminal cannot hide typed credentials.
+The main Solo panel runs the selected CLI's **native editor**: Codex, Claude
+Code, Cursor Agent, Kimi or OpenCode. That CLI handles multiline paste,
+questions, interruption and approval screens. Orkestar does not auto-accept
+new hook-trust requests. Follow the controls shown by your selected CLI.
+Where the selected adapter supports visible workers, their panels remain
+separately selectable, with readable progress.
 
 Give Lenka the outcome and acceptance criteria. A small change uses a builder,
 parallel focused testing and independent review, then an auditor. Accepted
@@ -58,14 +60,19 @@ proportional work. It does not promise a fixed completion time.
 - Taskavel closeout requires explicit project/task authorization and fresh
   readback. It does not create projects or cards through this new runtime path.
 - Missing verification remains **PARTIAL**. A worker exiting is not acceptance.
-- The readable conductor is currently the Codex Solo path. Other adapters have
-  separate capabilities; no universal platform or completion-time guarantee.
+- Native editor launching is shared across the five supported CLIs. Worker
+  orchestration and reporting capabilities still vary by adapter; native UI
+  support does not imply identical worker, hook or billing support.
 - Cursor support means **Cursor Agent CLI**, not the desktop Agent panel.
+- Kimi opens its native editor in Solo; automatic Solo MCP and visible-worker
+  integration are not verified for that CLI and are reported as unavailable.
 
 ## Update
 
 Pull this repository and rerun the bootstrap. Editing the clone alone does
 not update installed Lenka. Restart sessions to load updated code and routing.
+Stop the old Lenka process in Solo before relaunching after an update. Orkestar
+preserves active sessions and refuses to restart incompatible saved commands.
 Use `lenka setup` to change service/workspace choices, or
 `lenka up codex --direct` to work in a terminal.
 

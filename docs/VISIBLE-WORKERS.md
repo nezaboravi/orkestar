@@ -173,10 +173,12 @@ Native Solo workers cannot resume a prior session; requesting continuation
 readiness returns BLOCKED. Existing running sessions need restarting after an
 update to load the new bridge and instructions.
 
-## Readable Codex conductor
+## Native interactive conductor
 
-The Codex MAIN process in Solo uses the documented app-server protocol through the same registered **Orkestar Worker** generic tool. It renders ordinary Lenka prose, concise state changes, interactive questions and approvals in the existing Solo panel; raw JSON, MCP arguments/results and reasoning are not shown by default. Recognizable credential patterns are redacted; this is not a guarantee against arbitrary secret content. `/details` is explicit opt-in and remains sanitized.
+The MAIN process uses the selected CLI's native interactive interface. This applies to Codex, Claude Code, Cursor Agent, Kimi and OpenCode. The registered **Orkestar Worker** generic tool launches a small package-local adapter, which passes the Solo terminal directly to the verified CLI binary. Built-in Solo agent defaults cannot inject a different binary or additional bypass flags into this route.
 
-Enter starts or steers a turn. `/stop` sends a turn interrupt. Approval and question responses are accepted only while the corresponding request is pending. A completed turn or worker response is never an acceptance verdict.
+The CLI owns its editor, multiline paste, questions and approval screens. Orkestar neither splits pasted text into requests nor replaces the editor with a log stream. Use the controls the CLI displays; the previous custom `/details`, `/stop` and `/quit` protocol is not used for the conductor. Required native hook review remains a user decision, not an approval automatically supplied by this adapter. Existing native permission policy still applies.
 
-Ctrl-C or `/stop` interrupts the active turn; a follow-up continues the same conversation. Steering is sent to the active turn, but the provider may finish an already-streaming response before acting on it. `/quit` exits. Secret-input requests are rejected before prompting because this plain terminal cannot safely hide typed credentials. Authenticate through the native CLI instead.
+Codex still receives the installed Lenka instructions and uses the project-local `orkestar_worker` bridge for visible workers, with hidden native children disabled. Claude keeps its installed Lenka role and bridge. Other adapters retain their own documented worker capabilities; this UI change does not promise cross-harness orchestration parity. Worker panels and audit evidence are unchanged. A completed turn or worker response is never an acceptance verdict.
+
+Launch identity covers the project, verified binary, model, effort, native arguments and adapter version. A running old session is preserved and must be stopped by the user before relaunching; a stopped incompatible process is not restarted. Updating the package does not mutate a live conversation or approve its hooks.
