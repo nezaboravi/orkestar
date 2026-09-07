@@ -944,7 +944,7 @@ function runtimeManifest(tool, resolvedFactoryModels = {}, resolvedRoles = {}) {
   const primaryReasoningEffort = selectedAgentReasoning('lenka', tool) || reasoningForClass(tool, primaryModelClass);
   return `${JSON.stringify({
     schemaVersion: 1,
-    routingRevision: 2,
+    routingRevision: 3,
     harness: tool,
     lifecycle: factory.lifecycle,
     unknownCapabilityPolicy: factory.unknownCapabilityPolicy,

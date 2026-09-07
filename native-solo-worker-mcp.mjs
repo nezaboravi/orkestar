@@ -68,7 +68,7 @@ const definitions = [
   ...coordinationToolDefinitions,
   { name: 'worker_ready', description: 'Check local readiness for selected worker profiles. It performs no AI request or worker launch. With requireTaskavel:true, taskavelProjectName may prove one exact existing project through native read-only OAuth without writing a binding; binding remains pending until immutable closeout. When requireBrowser:true it writes one bounded managed PNG artifact in the project, then reads it back; it does not check provider capacity, prove app acceptance, or make native workers resumable.',
     inputSchema: readinessSchema, annotations: { readOnlyHint: false, openWorldHint: true } },
-  { name: 'worker_wait', description: 'Wait up to 20 seconds for one receipt-bound worker to exit. Repeat when ready:false. Does not use Solo timers or imply acceptance; collect worker_result when ready:true.',
+  { name: 'worker_wait', description: 'Wait up to 60 seconds (never longer) for one receipt-bound worker to exit, using internal backoff. Use one wait while work is running; when ready:false, repeat worker_wait only if work remains. Do not loop worker_status unless an error or intervention requires it. It does not use Solo timers or imply acceptance; collect worker_result when ready:true.',
     inputSchema: object({ runId }), annotations: { readOnlyHint: true, openWorldHint: false } },
   { name: 'worker_contract', description: 'Create and persist a bounded immutable task contract in this project. Requirement IDs must be unique R1, R2, R3 etc; example required:[{id:"R1",text:"Observed expected behavior"}]. The server computes contract ID and hash; no shell or file editing is needed. Existing contracts are never overwritten.',
     inputSchema: draftSchema, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false } },
@@ -184,6 +184,8 @@ export function createWorkerMcpHandler({ project, harness }, { api = workerApi, 
   if (!path.isAbsolute(project ?? '') || fs.realpathSync(project) !== project || !fs.statSync(project).isDirectory()
     || !['codex', 'claude'].includes(harness)) throw new Error('Invalid worker MCP launch scope');
   let initialized = false, ready = false, active = 0;
+  const waits = new Map();
+  const requestId = value => (typeof value === 'string' && value.length <= 100) || Number.isSafeInteger(value);
   const launch = args => api.dispatchNativeSoloWorker({ project, harness, profile: args.profile, name: args.name, runId: args.runId,
     ownerSessionId: `dispatch:${args.runId}`, task: { ...args.task, ...(args.ownership ? { ownership: args.ownership } : {}), contract: args.contract } });
   const validateWriteIntent = assignment => {
@@ -192,13 +194,14 @@ export function createWorkerMcpHandler({ project, harness }, { api = workerApi, 
     if (assignment.profile === 'project-write' && assignment.task.requiresWrite !== true) throw new Error('Writable worker must declare project file writes');
     if (!['project-write', 'taskavel', 'project-test'].includes(assignment.profile) && assignment.task.requiresWrite === true) throw new Error('Unsupported worker envelope');
   };
-  return async request => {
+  const handler = async request => {
     const id = request?.id;
     const hasId = request && Object.hasOwn(request, 'id');
     if (!request || typeof request !== 'object' || Array.isArray(request) || request.jsonrpc !== '2.0'
-      || typeof request.method !== 'string' || (hasId && !(typeof id === 'string' && id.length <= 100 || Number.isSafeInteger(id)))) return rpcError(null, -32600, 'Invalid request');
+      || typeof request.method !== 'string' || (hasId && !requestId(id))) return rpcError(null, -32600, 'Invalid request');
     if (!hasId) {
       if (request.method === 'notifications/initialized' && initialized) ready = true;
+      if (request.method === 'notifications/cancelled' && requestId(request.params?.requestId)) waits.get(request.params.requestId)?.abort();
       return null;
     }
     const respond = result => ({ jsonrpc: '2.0', id, result });
@@ -269,7 +272,9 @@ export function createWorkerMcpHandler({ project, harness }, { api = workerApi, 
           .withReservation(1, () => launch({ ...args, contract }));
         }
       } else if (tool.name === 'worker_wait') {
-        result = await waitForNativeWorker({ project, runId: args.runId }, { status: api.nativeSoloWorkerStatus });
+        const controller = new AbortController(); waits.set(id, controller);
+        try { result = await waitForNativeWorker({ project, runId: args.runId, signal: controller.signal }, { status: api.nativeSoloWorkerStatus }); }
+        finally { waits.delete(id); }
       } else if (tool.name === 'worker_report') {
         storedContract(project, validateTaskContract(args.contract));
         result = await finalizeNativeWorkerReport({ project, harness, report: args }, {
@@ -296,6 +301,8 @@ export function createWorkerMcpHandler({ project, harness }, { api = workerApi, 
     } catch (error) { return respond(toolError(error, project)); }
     finally { active--; }
   };
+  handler.cancelAll = () => { for (const controller of waits.values()) controller.abort(); };
+  return handler;
 }
 
 /** UTF-8 newline JSON-RPC only. Bounded frames, pending requests, output and work. */
@@ -305,7 +312,7 @@ export function serveWorkerMcp({ project, harness, input = process.stdin, output
   const pending = new Set(), ids = new Set();
   input.setEncoding('utf8');
   return new Promise(resolve => {
-    const finish = () => { closed = true; if (!pending.size) resolve(); };
+    const finish = () => { closed = true; handle.cancelAll(); if (!pending.size) resolve(); };
     const write = response => {
       if (!response) return;
       let line = JSON.stringify(response);

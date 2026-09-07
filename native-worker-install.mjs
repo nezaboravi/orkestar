@@ -79,7 +79,9 @@ export function installNativeWorker({ project, harness, nodeBinary, sourceRoot }
       const raw = read(settingsFile) ?? '';
       const begin = '# BEGIN ORKESTAR WORKER MCP';
       const end = '# END ORKESTAR WORKER MCP';
-      const block = `${begin}\n[mcp_servers.orkestar_worker]\ncommand = ${JSON.stringify(nodeBinary)}\nargs = ${JSON.stringify(args)}\n${end}\n`;
+      // Keep transport headroom above the MCP operation's hard 60-second wait
+      // limit so a client timeout cannot cancel an otherwise bounded response.
+      const block = `${begin}\n[mcp_servers.orkestar_worker]\ncommand = ${JSON.stringify(nodeBinary)}\nargs = ${JSON.stringify(args)}\ntool_timeout_sec = 90\n${end}\n`;
       const previous = manifest.settings.codex;
       if (previous && (raw.split(previous).length !== 2)) throw new Error('Preserved modified worker MCP settings');
       const rest = previous ? raw.replace(previous, '') : raw;

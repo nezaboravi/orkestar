@@ -398,6 +398,35 @@ test('stdio emits JSONRPC only, handles split frames and limits oversized input'
   assert.match(huge, /Frame exceeds limit/);
 });
 
+test('transport cancellation aborts only the matching bounded wait and releases its worker slot', async () => {
+  const input = new PassThrough(), output = new PassThrough(), rows = [];
+  output.on('data', chunk => rows.push(...chunk.toString().trim().split('\n').filter(Boolean).map(JSON.parse)));
+  let starts = 0, started, thirdStarted;
+  const allStarted = new Promise(resolve => { started = resolve; });
+  const thirdWaitStarted = new Promise(resolve => { thirdStarted = resolve; });
+  const serving = serveWorkerMcp({ project: project(), harness: 'codex', input, output, api: {
+    nativeSoloWorkerStatus: async () => {
+      starts++;
+      if (starts === 2) started();
+      if (starts === 3) thirdStarted();
+      return { runId, state: 'running' };
+    },
+  } });
+  input.write(`${JSON.stringify(request(1, 'initialize', {}))}\n`);
+  input.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
+  input.write(`${JSON.stringify(call(2, 'worker_wait', { runId }))}\n`);
+  input.write(`${JSON.stringify(call(3, 'worker_wait', { runId: 'b1234567-1234-4123-8123-123456789012' }))}\n`);
+  await allStarted;
+  input.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 2 } })}\n`);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(rows.find(row => row.id === 2)?.result?.isError, false);
+  input.write(`${JSON.stringify(call(4, 'worker_wait', { runId: 'c1234567-1234-4123-8123-123456789012' }))}\n`);
+  await thirdWaitStarted;
+  input.end(); await serving;
+  assert.deepEqual(rows.filter(row => [2, 3, 4].includes(row.id)).map(row => row.id).sort(), [2, 3, 4]);
+  assert.equal(rows.find(row => row.id === 2).result.isError, false);
+});
+
 test('real MCP executable initialize/tools list require no AI or Solo launch', () => {
   const root = project();
   const frames = [request(1, 'initialize', { protocolVersion: '2025-06-18' }), { jsonrpc: '2.0', method: 'notifications/initialized' }, request(2, 'tools/list')];
@@ -406,6 +435,9 @@ test('real MCP executable initialize/tools list require no AI or Solo launch', (
   assert.equal(run.status, 0); assert.equal(run.stderr, '');
   const rows = run.stdout.trim().split('\n').map(JSON.parse);
   assert.equal(rows.length, 2); assert.equal(rows[1].result.tools.length, 15);
+  const wait = rows[1].result.tools.find(tool => tool.name === 'worker_wait');
+  assert.match(wait.description, /up to 60 seconds/);
+  assert.match(wait.description, /repeat worker_wait only if work remains/);
   assert.deepEqual(fs.readdirSync(root), []);
   assert.throws(() => parseWorkerMcpLaunch(['--project', root, '--command', 'unsafe']), /Invalid/);
 });

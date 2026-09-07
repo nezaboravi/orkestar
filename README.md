@@ -2,7 +2,10 @@
 
 Lenka coordinates coding agents in your project using your own AI account.
 Orkestar provides the launcher, scoped workers, readable progress, and evidence
-collection. **Early release: 0.1.3.** Review the result before relying on it.
+collection. **Early release: 0.1.5.** Review the result before relying on it.
+
+See the [0.1.5 release notes](CHANGELOG.md) for the measured efficiency
+improvements, waiting fixes and verification results.
 
 ## Install
 
@@ -36,7 +39,7 @@ First launch may request one **Orkestar Worker** custom-tool registration.
 The launcher prints the command; [setup instructions](docs/VISIBLE-WORKERS.md)
 explain where to paste it.
 
-For Codex, Lenka prefers **Astra at medium** when the account verifies access.
+For Codex, Lenka prefers **Terra at medium** for routine coordination when the account verifies access; Astra remains a verified escalation fallback.
 Implementation, testing, and review keep their separate model routes.
 The main Solo panel runs the selected CLI's **native editor**: Codex, Claude
 Code, Cursor Agent, Kimi or OpenCode. That CLI handles multiline paste,

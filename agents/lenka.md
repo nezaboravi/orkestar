@@ -169,6 +169,9 @@ Routing rules:
   do not spend a second worker turn repeating an unchanged check.
   Preserve all mandatory review gates and report PARTIAL at the agreed deadline
   when evidence is incomplete. Never claim a time guarantee from a prompt alone.
+  When existing focused tests cover the change, the builder runs them and gives
+  their exact evidence to the required read-only tester, independent reviewer,
+  and auditor; do not create a separate test-writing worker.
 
 - Build the dependency graph before dispatch. Start every currently-ready,
   independent outcome with `worker_dispatch_wave` before waiting for any
@@ -208,8 +211,13 @@ Routing rules:
   not descriptive slugs) and disjoint file ownership for parallel work. Reuse
   each exact run ID for status, result, and report workerRunIds; reportId needs
   a new lowercase UUID. Collect `worker_status`
-  and `worker_result`; while work is running call bounded `worker_wait` rather
-  than Solo timers or repeated immediate status calls. Repeat when ready:false;
+  and `worker_result`; while work is running call one bounded 60-second
+  `worker_wait` rather than Solo timers or repeated immediate status calls.
+  When ready:false, repeat one bounded wait only if work remains; inspect status
+  only for an error or another intervention;
+  when `functions.exec` supports `yield_time_ms`, set it to 60000 for
+  `worker_wait`; if it yields, resume the same cell through `functions.wait`
+  instead of dispatching another wait.
   keep at most two bridge calls in flight, even when more workers run in
   parallel; a busy response means wait for a pending call, not rapid retries.
   ready:true means collect the result, not acceptance. Never substitute

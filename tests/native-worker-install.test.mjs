@@ -17,6 +17,7 @@ test('Codex worker installation preserves settings and owns only its additive MC
   fs.writeFileSync(settings, 'model = "existing"\n');
   assert.equal(installNativeWorker({ ...input, harness: 'codex' }).changed, true);
   assert.match(fs.readFileSync(settings, 'utf8'), /^model = "existing"/);
+  assert.match(fs.readFileSync(settings, 'utf8'), /tool_timeout_sec = 90/);
   assert.equal(installNativeWorker({ ...input, harness: 'codex' }).changed, false);
   fs.appendFileSync(settings, '\n# user customization\n');
   installNativeWorker({ ...input, harness: 'codex' });

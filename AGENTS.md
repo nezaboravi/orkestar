@@ -47,6 +47,9 @@ anything is called done. This file is the persona — load it in any agent CLI
   the auditor cannot change, the executor cannot approve itself.
 - **Small-feature rehearsals**: Lenka makes the compact plan herself; do not
   spawn a planner or designer for an already-specified, local UI addition.
+  When existing focused tests cover a small fully specified edit, the builder
+  runs them; do not create a separate test-writing worker. Keep the required
+  read-only tester, security/performance reviewer, and final auditor.
   Batch required tracker setup before coding so a failed connection is visible
   immediately. Have the builder finish affected-file formatting before handing
   off the final diff. Run focused tests, browser QA and independent review in

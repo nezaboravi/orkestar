@@ -384,15 +384,16 @@ test('model routing is adapter-specific', () => {
   assert.equal(opencode['dev-tester'], 'opencode-go/kimi-k2.7-code');
 });
 
-test('Codex Lenka prefers Astra while retaining builder, tester, and auditor routes', () => {
+test('Codex Lenka prefers Terra for routine coordination while retaining escalation and review routes', () => {
   const roles = resolveModels(['gpt-6-astra', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.6-sol'], 'codex');
-  assert.equal(roles.lenka, 'gpt-6-astra');
+  assert.equal(roles.lenka, 'gpt-5.6-terra');
   assert.equal(roles['dev-builder'], 'gpt-5.6-terra');
   assert.equal(roles['dev-tester'], 'gpt-5.6-luna');
   assert.equal(roles['dev-auditor'], 'gpt-5.6-sol');
   const manifest = JSON.parse(runtimeManifest('codex', { economy: 'gpt-5.6-luna', mid: 'gpt-5.6-terra', strongest: 'gpt-5.6-sol' }, roles));
-  assert.equal(manifest.primary.model, 'gpt-6-astra');
+  assert.equal(manifest.primary.model, 'gpt-5.6-terra');
   assert.equal(manifest.primary.reasoningEffort, 'medium');
+  assert.equal(manifest.routingRevision, 3);
 });
 
 test('Codex Lenka falls back to the verified coordination model when Astra is unavailable', () => {
