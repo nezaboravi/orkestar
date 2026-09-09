@@ -71,3 +71,18 @@ test('conflicting project files are backed up and symlink parents reject before 
   assert.throws(() => refreshProjectRuntime(linked), /Unsafe/);
   assert.deepEqual(fs.readdirSync(outside), []);
 });
+
+
+test('mixed OpenCode routes refresh without rejecting or replacing verified profiles', () => {
+  const f = fixture('opencode');
+  f.manifest.primary.model = 'opencode-go/kimi-k2.7-code';
+  for (const profile of Object.values(f.manifest.profiles)) {
+    profile.model = profile.modelClass === 'mid' ? 'openai/gpt-5.6-terra' : profile.modelClass === 'economy' ? 'openai/gpt-5.6-luna' : 'openai/gpt-5.6-sol';
+  }
+  f.manifest.profiles['project-write'].model = 'opencode-go/kimi-k2.7-code';
+  assert.ok(refreshProjectRuntime(f).changed > 0);
+  const current = JSON.parse(fs.readFileSync(path.join(f.project,'.agent-orchestra','runtime','opencode.json')));
+  assert.deepEqual(current.primary,f.manifest.primary);
+  assert.deepEqual(current.profiles,f.manifest.profiles);
+  assert.equal(refreshProjectRuntime(f).changed,0);
+});

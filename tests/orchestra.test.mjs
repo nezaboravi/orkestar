@@ -847,3 +847,9 @@ test('backup conflict policy preserves replaced content', () => {
   assert.equal(fs.readFileSync(replaced.backup, 'utf8'), 'configuration before orchestra\n');
   assert.equal(fs.readFileSync(personaPath, 'utf8'), fs.readFileSync(path.join(repoRoot, 'AGENTS.md'), 'utf8'));
 });
+
+
+test('Cursor model inventory strips terminal colors before parsing model identifiers', () => {
+  const output = '\x1b[2mAvailable models\x1b[22m\n\n\x1b[32mauto\x1b[39m \x1b[2m- Auto (current, default)\x1b[22m\n\x1b[36mcomposer-2\x1b[39m \x1b[2m- Composer 2\x1b[22m\n';
+  assert.deepEqual(cursorModelInventory('/tmp/home', () => ({status:0,stdout:output}), '/bin/agent'), ['auto','composer-2']);
+});

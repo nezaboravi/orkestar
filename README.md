@@ -2,9 +2,9 @@
 
 Lenka coordinates coding agents in your project using your own AI account.
 Orkestar provides the launcher, scoped workers, readable progress, and evidence
-collection. **Early release: 0.1.8.** Review the result before relying on it.
+collection. **Early release: 0.1.9.** Review the result before relying on it.
 
-See the [0.1.8 release notes](CHANGELOG.md) for model defaults, worker reuse
+See the [0.1.9 release notes](CHANGELOG.md) for model defaults, worker reuse
 and installation fixes.
 
 Plain `lenka up` asks which AI tool to use on every run and launches it in the

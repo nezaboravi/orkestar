@@ -1,5 +1,13 @@
 # Release notes
 
+## 0.1.9 — 2026-09-09
+
+- Accept verified mixed-model classes when refreshing cached runtime routes,
+  so a freshly installed OpenCode team can launch without repeating probes.
+
+- Strip terminal color sequences from Cursor model inventory so FORCE_COLOR
+  terminals can choose and launch Cursor through lenka up.
+
 ## 0.1.8 — 2026-09-09
 
 - Offer Auto or explicit CLI/model/effort for each external worker role. Require

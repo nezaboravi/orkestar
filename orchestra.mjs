@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { stripVTControlCharacters } from 'node:util';
 import { loadModelSelection, selectionRoutes, selectionDigest, validSelection } from './model-selection.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -358,7 +359,7 @@ function cursorModelInventory(home, runner = spawnSync, binary = executable('age
   if (!binary) return [];
   const result = runner(binary, ['--list-models'], { encoding: 'utf8', timeout: 15000, env: targetEnvironment(home) });
   if (result?.status !== 0) return [];
-  const output = String(result.stdout || '').trim();
+  const output = stripVTControlCharacters(String(result.stdout || '')).trim();
   try {
     const parsed = JSON.parse(output || '[]');
     const rows = Array.isArray(parsed) ? parsed : (parsed.models || []);

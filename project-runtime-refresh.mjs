@@ -2,7 +2,7 @@ import { runtimeMatchesSelection } from './model-selection.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { buildPlan, classify, runtimeManifest } from './orchestra.mjs';
+import { buildPlan, classify, resolveModels, runtimeManifest } from './orchestra.mjs';
 
 const text = value => typeof value === 'string' && value.trim() && value.length <= 512
   && !/[\x00-\x1f\x7f]/.test(value);
@@ -65,8 +65,11 @@ export function refreshProjectRuntime({ project, harness, manifest, selection = 
   }
   const factory = Object.fromEntries(Object.entries(candidates).filter(([, models]) => models.size === 1)
     .map(([modelClass, models]) => [modelClass, [...models][0]]));
-  if (!factory[manifest.primary.modelClass]) throw new RuntimeRoutingRevalidationError();
-  roles['dev-lead'] = factory[manifest.primary.modelClass];
+  // Different verified role models may share a class; resolve the omitted lead
+  // from those candidates without replacing any verified profile or Lenka.
+  roles['dev-lead'] = resolveModels([...candidates[manifest.primary.modelClass]], harness)['dev-lead']
+    || factory[manifest.primary.modelClass];
+  if (!roles['dev-lead']) throw new RuntimeRoutingRevalidationError();
   const plan = buildPlan({ selectedTools: [harness], projectOnly: true, project,
     resolvedModelsByTool: { [harness]: roles }, resolvedFactoryModelsByTool: { [harness]: factory }, modelSelectionsByTool: selection ? { [harness]: selection } : {} });
   const runtimeTarget = path.join(project, '.agent-orchestra', 'runtime', `${harness}.json`);
