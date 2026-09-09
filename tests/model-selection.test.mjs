@@ -87,7 +87,7 @@ test('all harnesses apply independent Lenka choice plus worker classes to actual
     assert.equal(runtimeMatchesSelection(manifest, { ...chosen, machine: 'other-machine' }), false);
     const plan = buildPlan({ home: temporary(), project: temporary(), projectOnly: true, selectedTools: [harness],
       resolvedModelsByTool: { [harness]: roles }, resolvedFactoryModelsByTool: { [harness]: factory }, modelSelectionsByTool: { [harness]: chosen } });
-    const output = plan.operations.find(item => item.target.endsWith(`/runtime/${harness}.json`));
+    const output = plan.operations.find(item => item.target.endsWith(path.join('runtime', `${harness}.json`)));
     assert.equal(runtimeMatchesSelection(JSON.parse(output.content), chosen), true);
     const worker = plan.operations.find(item => /dev-builder\.(toml|md)$/.test(item.target));
     if (!inherited) assert.ok(worker.content.includes(expected.mid));
@@ -110,7 +110,12 @@ test('a rejected selected model never falls back to another listed model', () =>
   assert.deepEqual(new Set(probed), new Set(Object.values(models)));
 });
 
-test('startup reuses locally saved listed choices without prompting or generation', async () => {
+test('startup reuses locally saved listed choices without prompting or generation', async t => {
+  // Containers may have no machine-id; this test uses a stable fixture identity.
+  if (process.platform === 'linux') {
+    const read = fs.readFileSync;
+    t.mock.method(fs, 'readFileSync', (file, ...args) => file === '/etc/machine-id' ? 'fixture-machine-id' : read(file, ...args));
+  }
   const home = temporary();
   saveModelSelection(home, 'codex', models);
   const result = await ensureModelSelection('codex', { home, inventory, input: { isTTY: false }, output: { isTTY: false }, prompt: { question: () => { throw new Error('unexpected prompt'); } } });
