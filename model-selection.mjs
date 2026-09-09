@@ -1,3 +1,4 @@
+import { validTeam } from './team-routing.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,6 +29,8 @@ function selectionPath(home, harness) {
 export function validSelection(selection, inventory) {
   return selection?.schemaVersion === 1 && purposes.every(key => validModel(selection.models?.[key])
     && (!inventory || inventory.includes(selection.models[key])))
+    && (!selection.externalWorkers || validTeam(selection.externalWorkers, selection.models.lenka))
+    && (selection.primaryEffort == null || ['low', 'medium', 'high'].includes(selection.primaryEffort))
     && (!['cursor', 'kimi'].includes(selection.harness) || purposes.every(key => selection.models[key] === selection.models.lenka));
 }
 
@@ -51,9 +54,9 @@ export function loadModelSelection(home, harness, fingerprint = machineFingerpri
   return null;
 }
 
-export function saveModelSelection(home, harness, models, fingerprint = machineFingerprint(home)) {
+export function saveModelSelection(home, harness, models, fingerprint = machineFingerprint(home), extras = {}) {
   if (!fingerprint) throw new Error('Cannot identify this machine safely; model choices were not saved.');
-  const selection = { schemaVersion: 1, harness, machine: fingerprint, models };
+  const selection = { schemaVersion: 1, harness, machine: fingerprint, models, ...(extras.primaryEffort != null ? { primaryEffort: extras.primaryEffort } : {}), ...(extras.externalWorkers ? { externalWorkers: extras.externalWorkers } : {}) };
   if (!validSelection(selection)) throw new Error('Invalid model choices');
   const target = selectionPath(home, harness);
   const directory = path.dirname(target);
@@ -82,31 +85,34 @@ export function recommendedModels(harness, inventory) {
   }));
 }
 
-export async function chooseModels({ harness, inventory, question, write = console.log, previous = null }) {
+export async function chooseModels({ harness, inventory, question, write = console.log, previous = null, primaryOnly = false }) {
   const available = [...new Set(inventory.filter(validModel))];
   const defaults = recommendedModels(harness, available);
   write(harness === 'claude'
     ? '\nClaude aliases are supported choices; account access is not verified by this list.'
     : '\nModels reported by your tool; listing does not guarantee account access.');
   write('No generation requests are made while choosing. Recommendations balance everyday work and review; prices are not measured.');
+  if (primaryOnly) write('  0. Auto — use the recommended or current CLI model');
   available.forEach((model, index) => write(`  ${index + 1}. ${model}`));
   const inherited = ['cursor', 'kimi'].includes(harness);
-  if (inherited) write('This adapter inherits one model for Lenka and workers; separate worker models are not supported.');
+  if (inherited) write(primaryOnly ? 'Native children inherit Lenka’s model. Select separate CLI workers next.' : 'This adapter inherits one model for native workers.');
   const models = {};
-  for (const key of (inherited ? ['lenka'] : purposes)) {
+  for (const key of (inherited || primaryOnly ? ['lenka'] : purposes)) {
     const prior = previous?.models?.[key];
     const recommended = defaults[key];
     const selected = available.includes(prior) ? prior : recommended;
     const defaultIndex = selected ? available.indexOf(selected) + 1 : null;
     const description = selected === prior ? 'saved choice' : 'recommended';
-    const answer = (await question(`${labels[key]}${selected ? ` [${defaultIndex}: ${selected}, ${description}]` : ' (choose a number; no known recommendation)'}: `)).trim();
-    const index = answer === '' ? defaultIndex : (/^\d+$/.test(answer) ? Number(answer) : null);
+    const answer = (await question(`${labels[key]}${primaryOnly ? ' [0: Auto]' : selected ? ` [${defaultIndex}: ${selected}, ${description}]` : ' (choose a number; no known recommendation)'}: `)).trim();
+    const index = primaryOnly && ['', '0'].includes(answer) ? (defaultIndex || 1) : answer === '' ? defaultIndex : (/^\d+$/.test(answer) ? Number(answer) : null);
     if (!index || !available[index - 1]) throw new Error('Invalid model selection; no choices were saved.');
     models[key] = available[index - 1];
   }
   if (inherited) for (const key of purposes) models[key] = models.lenka;
+  else if (primaryOnly) for (const key of purposes) models[key] ??= defaults[key] || models.lenka;
   write('\nSelected models:');
-  purposes.forEach(key => write(`- ${labels[key]}: ${models[key]}`));
+  (inherited || primaryOnly ? ['lenka'] : purposes).forEach(key => write(`- ${labels[key]}: ${models[key]}`));
+  if (primaryOnly) return models;
   const confirmation = (await question('Save these choices for this computer? [Y/n]: ')).trim().toLowerCase();
   if (!['', 'y', 'yes'].includes(confirmation)) throw new Error('Model selection cancelled; previous choices are unchanged.');
   return models;
@@ -121,12 +127,14 @@ export function selectionRoutes(selection) {
 }
 
 export function selectionDigest(selection) {
-  return createHash('sha256').update(JSON.stringify([selection.machine, selection.harness, ...purposes.map(key => selection.models[key])])).digest('hex');
+  return createHash('sha256').update(JSON.stringify([selection.machine, selection.harness, ...purposes.map(key => selection.models[key]), selection.primaryEffort ?? null, selection.externalWorkers ?? null])).digest('hex');
 }
 
 export function runtimeMatchesSelection(manifest, selection) {
   if (!validSelection(selection) || manifest?.modelSelection !== selectionDigest(selection)) return false;
   const { roles } = selectionRoutes(selection);
-  return manifest.primary?.model === roles.lenka && Object.entries(config.agentFactory.profiles)
+  return (!selection.primaryEffort || manifest.primary?.reasoningEffort === selection.primaryEffort)
+    && JSON.stringify(manifest.externalWorkers ?? null) === JSON.stringify(selection.externalWorkers ?? null)
+    && manifest.primary?.model === roles.lenka && Object.entries(config.agentFactory.profiles)
     .every(([key, profile]) => manifest.profiles?.[key]?.model === roles[profile.template]);
 }

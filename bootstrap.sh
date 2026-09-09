@@ -76,7 +76,7 @@ need() { command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1
 
 install_node() {
   if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
-    major=$(node -p 'Number(process.versions.node.split(".")[0])')
+    major=$(node -e 'process.stdout.write(process.versions.node.split(".")[0])')
     [ "$major" -ge 20 ] && return 0
   fi
 

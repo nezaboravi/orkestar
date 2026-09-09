@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { spawnSync } from 'node:child_process';
 
 const repoRoot = path.resolve(import.meta.dirname, '..');
 const unix = fs.readFileSync(path.join(repoRoot, 'bootstrap.sh'), 'utf8').replace(/\r\n/g, '\n');
@@ -118,4 +119,12 @@ test('Unix bootstrap probes authenticated routes once and then checks structural
 test('bootstraps request compact install output', () => {
   assert.match(unix, /--tool "\$candidate" --quiet/);
   assert.match(windows, /"--conflict", \$Conflict, "--quiet"/);
+});
+
+test('Node major detection stays numeric when the terminal forces color', () => {
+  const expression = unix.match(/major=\$\(node -e '([^']+)'\)/)?.[1];
+  assert.ok(expression);
+  const result = spawnSync(process.execPath, ['-e', expression], { encoding: 'utf8', env: { ...process.env, FORCE_COLOR: '1' } });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, process.versions.node.split('.')[0]);
 });

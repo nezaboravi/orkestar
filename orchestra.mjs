@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** Portable, dependency-free installer and doctor for agent-orchestra. */
 
+import { teamInstructions } from './team-routing.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -400,16 +401,20 @@ function declaredModels(tool) {
   return [...new Set(Object.values(declaredRoles(tool)).flat())];
 }
 
-function codexModelInventory(home, runner = spawnSync, binary = executable('codex')) {
+function codexModelCatalog(home, runner = spawnSync, binary = executable('codex')) {
   if (!binary) return [];
   const result = runner(binary, ['debug', 'models'], { encoding: 'utf8', timeout: 15000, env: targetEnvironment(home) });
   if (result?.status !== 0) return [];
   try {
     const parsed = JSON.parse(result.stdout || '{}');
-    return [...new Set((parsed.models || []).filter((model) => model.visibility !== 'hide').map((model) => model.slug).filter(Boolean))];
+    return (parsed.models || []).filter(model => model.visibility !== 'hide' && model.slug).map(model => ({ harness: 'codex', model: model.slug, efforts: (model.supported_reasoning_levels || []).map(level => level.effort).filter(level => ['low', 'medium', 'high'].includes(level)) }));
   } catch {
     return [];
   }
+}
+
+function codexModelInventory(home, runner = spawnSync, binary = executable('codex')) {
+  return [...new Set(codexModelCatalog(home, runner, binary).map(item => item.model))];
 }
 
 function resolveModels(inventory, tool = 'opencode') {
@@ -944,11 +949,11 @@ function runtimeManifest(tool, resolvedFactoryModels = {}, resolvedRoles = {}, s
   const primaryModel = resolvedRoles.lenka ? resolvedRoles.lenka : tool === 'codex'
     ? selectedAgentModel('lenka', resolvedRoles, resolvedFactoryModels) || resolvedFactoryModels[primaryModelClass] || null
     : resolvedFactoryModels[primaryModelClass] || null;
-  const primaryReasoningEffort = selectedAgentReasoning('lenka', tool) || reasoningForClass(tool, primaryModelClass);
+  const primaryReasoningEffort = selection?.primaryEffort || selectedAgentReasoning('lenka', tool) || reasoningForClass(tool, primaryModelClass);
   return `${JSON.stringify({
     schemaVersion: 1,
     routingRevision: 3,
-    ...(selection ? { modelSelection: selectionDigest(selection) } : {}),
+    ...(selection ? { modelSelection: selectionDigest(selection), ...(selection.externalWorkers ? { externalWorkers: selection.externalWorkers } : {}) } : {}),
     harness: tool,
     lifecycle: factory.lifecycle,
     unknownCapabilityPolicy: factory.unknownCapabilityPolicy,
@@ -982,8 +987,8 @@ function buildPlan(options) {
       for (const agent of agents) {
         const extension = tool === 'codex' ? '.toml' : '.md';
         const selectedModel = selectedAgentModel(agent.name, resolvedModels, resolvedFactoryModels);
-        const reasoningEffort = selectedAgentReasoning(agent.name, tool);
-        operations.push({ target: path.join(globalAgents, `${agent.name}${extension}`), content: convert(agent, tool, selectedModel, reasoningEffort), kind: `${tool} agent` });
+        const reasoningEffort = agent.name === 'lenka' && options.modelSelectionsByTool?.[tool]?.primaryEffort || selectedAgentReasoning(agent.name, tool);
+        operations.push({ target: path.join(globalAgents, `${agent.name}${extension}`), content: convert(agent.name === 'lenka' && options.modelSelectionsByTool?.[tool]?.externalWorkers ? { ...agent, body: agent.body + teamInstructions(tool) } : agent, tool, selectedModel, reasoningEffort), kind: `${tool} agent` });
       }
       const personaContent = tool === 'cursor'
         ? `---\ndescription: Lenka orchestrator persona\nalwaysApply: true\n---\n\n${persona}`
@@ -1022,8 +1027,8 @@ function buildPlan(options) {
       for (const agent of agents) {
         const extension = tool === 'codex' ? '.toml' : '.md';
         const selectedModel = selectedAgentModel(agent.name, resolvedModels, resolvedFactoryModels);
-        const reasoningEffort = selectedAgentReasoning(agent.name, tool);
-        operations.push({ target: path.join(projectAgents, `${agent.name}${extension}`), content: convert(agent, tool, selectedModel, reasoningEffort), kind: `${tool} project agent` });
+        const reasoningEffort = agent.name === 'lenka' && options.modelSelectionsByTool?.[tool]?.primaryEffort || selectedAgentReasoning(agent.name, tool);
+        operations.push({ target: path.join(projectAgents, `${agent.name}${extension}`), content: convert(agent.name === 'lenka' && options.modelSelectionsByTool?.[tool]?.externalWorkers ? { ...agent, body: agent.body + teamInstructions(tool) } : agent, tool, selectedModel, reasoningEffort), kind: `${tool} project agent` });
       }
       operations.push({
         target: path.join(options.project, '.agent-orchestra', 'runtime', `${tool}.json`),
@@ -1339,4 +1344,4 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   }
 }
 
-export { parseFrontmatter, parseAgent, codexAgent, cursorAgent, kimiAgent, buildPlan, classify, modelInventory, modelProbe, codexModelInventory, codexModelProbe, cursorModelInventory, cursorModelProbe, claudeModelProbe, kimiModelInventory, kimiModelProbe, resolveModels, resolveFactoryModels, resolveExecutableModels, resolveExecutableFactoryModels, createAgentCharter, createTaskContract, validateTaskContract, createPhasePacket, validateProtocolResult, compareChangeSurface, runtimeManifest, main };
+export { parseFrontmatter, parseAgent, codexAgent, cursorAgent, kimiAgent, buildPlan, classify, modelInventory, modelProbe, codexModelInventory, codexModelCatalog, codexModelProbe, cursorModelInventory, cursorModelProbe, claudeModelProbe, kimiModelInventory, kimiModelProbe, resolveModels, resolveFactoryModels, resolveExecutableModels, resolveExecutableFactoryModels, createAgentCharter, createTaskContract, validateTaskContract, createPhasePacket, validateProtocolResult, compareChangeSurface, runtimeManifest, main };

@@ -2,9 +2,9 @@
 
 Lenka coordinates coding agents in your project using your own AI account.
 Orkestar provides the launcher, scoped workers, readable progress, and evidence
-collection. **Early release: 0.1.7.** Review the result before relying on it.
+collection. **Early release: 0.1.8.** Review the result before relying on it.
 
-See the [0.1.7 release notes](CHANGELOG.md) for model defaults, worker reuse
+See the [0.1.8 release notes](CHANGELOG.md) for model defaults, worker reuse
 and installation fixes.
 
 Plain `lenka up` asks which AI tool to use on every run and launches it in the
@@ -17,14 +17,28 @@ you explicitly want a workspace launcher.
 OpenCode retains autonomous model routing: Lenka chooses from the verified available
 routes. It does not require or apply saved per-role model choices.
 
-`lenka setup` lists the selected tool's models and offers editable recommendations
-for Lenka, normal workers, light work, and independent review. Enter accepts the
-shown choice. Codex recommends Astra at low for Lenka, Terra for normal workers, Luna for light
-work, and Sol for review when listed; Claude proposes Sonnet, Haiku, and Opus.
-These are routing preferences, not measured price or account-access guarantees.
-Unknown models remain selectable but receive no invented capability ranking.
-Cursor and Kimi currently inherit one selected model across their native agents;
-setup explains this and asks for one model instead of offering ineffective overrides.
+`lenka setup` offers Auto or an explicit model for Lenka, then a separate CLI,
+model and supported effort for implementation, light checks and independent
+review. Auto displays its resolved choice before saving. Codex Lenka defaults
+to Astra / low; the worker preferences are Terra / medium, Luna / low and
+Sol / high when listed. The reviewer must differ from both Lenka and the builder.
+
+External workers currently target authenticated Codex or Claude CLIs using their
+existing account login. These are routing preferences, not measured prices or
+account-access guarantees. Kimi and Cursor native children still inherit their
+conductor model; their selected external workers are separate processes.
+Kimi/Cursor conductor effort stays in the native CLI configuration because this
+adapter has no verified per-launch effort override for them.
+
+Lenka invokes `lenka delegate --harness kimi --role strongest --task review.json`
+from the project. The JSON contains `goal`, `required` acceptance strings and,
+for implementation, `ownership` relative paths. Use identical goal/criteria for
+the builder and reviewer: the local record limits that contract to two launches.
+Workers cannot delegate, results remain untrusted evidence, and completion does
+not automatically approve the task. Codex uses its native read-only/workspace-write
+sandbox; Claude reviewers have no shell or write tools. Claude tool permissions
+are not an OS filesystem sandbox. Native worker continuation is not yet exposed
+by this cross-CLI command; it must not silently replace a failed worker.
 
 Choices are saved locally per tool and bound to the OS machine identity and home
 directory. A different computer, missing choices, or a model no longer listed

@@ -1,3 +1,4 @@
+import { runtimeMatchesSelection } from './model-selection.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -41,12 +42,13 @@ function directory(project, target) {
 }
 
 /** Project-only projection of already verified routes; no inventory, probes or global writes. */
-export function refreshProjectRuntime({ project, harness, manifest, conflict = 'backup' }) {
+export function refreshProjectRuntime({ project, harness, manifest, selection = null, conflict = 'backup' }) {
   if (!path.isAbsolute(project ?? '') || path.resolve(project) !== project || fs.realpathSync(project) !== project
     || !['codex', 'claude', 'opencode', 'cursor', 'kimi'].includes(harness)
     || !['backup', 'skip'].includes(conflict) || manifest?.schemaVersion !== 1 || manifest.harness !== harness
     || !text(manifest.primary?.model) || manifest.primary?.role !== 'coordination') throw new Error('Invalid cached runtime scope');
-  const expected = JSON.parse(runtimeManifest(harness));
+  if (selection && !runtimeMatchesSelection(manifest, selection)) throw new RuntimeRoutingRevalidationError();
+  const expected = JSON.parse(runtimeManifest(harness, {}, {}, selection));
   if (manifest.routingRevision !== expected.routingRevision
     || manifest.primary.modelClass !== expected.primary.modelClass
     || manifest.primary.reasoningEffort !== expected.primary.reasoningEffort || !manifest.profiles
@@ -66,7 +68,7 @@ export function refreshProjectRuntime({ project, harness, manifest, conflict = '
   if (!factory[manifest.primary.modelClass]) throw new RuntimeRoutingRevalidationError();
   roles['dev-lead'] = factory[manifest.primary.modelClass];
   const plan = buildPlan({ selectedTools: [harness], projectOnly: true, project,
-    resolvedModelsByTool: { [harness]: roles }, resolvedFactoryModelsByTool: { [harness]: factory } });
+    resolvedModelsByTool: { [harness]: roles }, resolvedFactoryModelsByTool: { [harness]: factory }, modelSelectionsByTool: selection ? { [harness]: selection } : {} });
   const runtimeTarget = path.join(project, '.agent-orchestra', 'runtime', `${harness}.json`);
   const runtime = plan.operations.find(operation => operation.target === runtimeTarget);
   const generated = JSON.parse(runtime.content);

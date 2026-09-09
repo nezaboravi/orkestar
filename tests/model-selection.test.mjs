@@ -118,9 +118,9 @@ test('startup reuses locally saved listed choices without prompting or generatio
   }
   const home = temporary();
   saveModelSelection(home, 'codex', models);
-  const result = await ensureModelSelection('codex', { home, inventory, input: { isTTY: false }, output: { isTTY: false }, prompt: { question: () => { throw new Error('unexpected prompt'); } } });
+  const result = await ensureModelSelection('codex', { configureTeam: false, home, inventory, input: { isTTY: false }, output: { isTTY: false }, prompt: { question: () => { throw new Error('unexpected prompt'); } } });
   assert.deepEqual(result.models, models);
-  await assert.rejects(ensureModelSelection('codex', { home, inventory: ['gpt-5.6-terra'], input: { isTTY: false }, output: { isTTY: false } }), /lenka setup/);
+  await assert.rejects(ensureModelSelection('codex', { configureTeam: false, home, inventory: ['gpt-5.6-terra'], input: { isTTY: false }, output: { isTTY: false } }), /lenka setup/);
 });
 
 test('startup will not launch a copied or previously selected runtime', async () => {

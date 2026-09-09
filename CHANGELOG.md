@@ -1,5 +1,14 @@
 # Release notes
 
+## 0.1.8 — 2026-09-09
+
+- Offer Auto or explicit CLI/model/effort for each external worker role. Require
+  a reviewer model different from the conductor and implementation worker.
+- Add bounded cross-CLI Codex/Claude dispatch with existing account login,
+  scoped native permissions and captured output. Preserve OpenCode autonomy.
+- Retain selected team and conductor effort when refreshing project runtimes.
+- Fix bootstrap Node version detection in terminals using FORCE_COLOR.
+
 ## 0.1.7 — 2026-09-09
 
 - Plain `lenka up` always asks for the AI tool and stays in the current terminal,

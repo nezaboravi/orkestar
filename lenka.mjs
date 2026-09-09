@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { chooseTeam, validTeam } from './team-routing.mjs';
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -7,7 +8,7 @@ import process from 'node:process';
 import readline from 'node:readline/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { modelInventory } from './orchestra.mjs';
+import { modelInventory, codexModelCatalog } from './orchestra.mjs';
 import { chooseModels, loadModelSelection, saveModelSelection, validSelection, runtimeMatchesSelection } from './model-selection.mjs';
 import { herdrSessionName } from './session-name.mjs';
 import { launcherArgs } from './harness-launcher.mjs';
@@ -44,6 +45,7 @@ Usage:
   lenka connect taskavel [cursor|codex|claude|opencode]
   lenka status [--project PATH]
   lenka report last [--project PATH]
+  lenka delegate --harness TOOL --role mid|economy|strongest --task PROJECT_FILE
   lenka worker dispatch --contract PROJECT_FILE [--project PATH]
   lenka worker status|result --run-id ID [--project PATH]
   lenka doctor [cursor|codex|claude|kimi|opencode] [--project PATH]
@@ -244,14 +246,31 @@ async function ensureHarnessAuthentication(harness, project, dependencies = {}) 
   if (status.authenticated === false) throw new Error(`${harness} is still not signed in after login`);
 }
 
-async function ensureModelSelection(harness, { home = homeDirectory(), input = process.stdin, output = process.stdout, inventory = modelInventory(home, harness), force = false, prompt = null } = {}) {
+async function ensureModelSelection(harness, { home = homeDirectory(), input = process.stdin, output = process.stdout, inventory = modelInventory(home, harness), force = false, prompt = null, configureTeam = true, teamCatalog = null } = {}) {
   const previous = loadModelSelection(home, harness);
-  if (!force && validSelection(previous, inventory)) return previous;
+  if (!force && validSelection(previous, inventory) && (!configureTeam || validTeam(previous.externalWorkers, previous.models.lenka))) return previous;
   if (!prompt && (!input.isTTY || !output.isTTY)) throw new Error('Model choices are missing, from another computer, or no longer listed. Run `lenka setup` in an interactive terminal.');
   const questions = prompt || readline.createInterface({ input, output });
   try {
-    const models = await chooseModels({ harness, inventory, previous, question: text => questions.question(text), write: text => output.write(text + '\n') });
-    return saveModelSelection(home, harness, models);
+    const models = await chooseModels({ harness, inventory, previous, question: text => questions.question(text), write: text => output.write(text + '\n'), primaryOnly: configureTeam });
+    if (!configureTeam) return saveModelSelection(home, harness, models);
+    const catalog = teamCatalog ?? ['codex', 'claude'].flatMap(tool => {
+      const state = inspectHarness(tool, executable, runCaptured, process.cwd());
+      if (!state.authenticated) return [];
+      return tool === 'codex' ? codexModelCatalog(home) : modelInventory(home, tool).map(model => ({ harness: tool, model, efforts: ['low', 'medium', 'high'] }));
+    });
+    let primaryEffort = null;
+    if (['codex', 'claude'].includes(harness)) {
+      const levels = catalog.find(route => route.harness === harness && route.model === models.lenka)?.efforts || [];
+      if (!levels.length) throw new Error('No verified effort is available for Lenka');
+      const preferred = harness === 'codex' ? 'low' : 'medium';
+      const fallback = levels.includes(preferred) ? preferred : levels[0];
+      const answer = (await questions.question(`Lenka effort: auto (${fallback}), ${levels.join(', ')} [auto]: `)).trim().toLowerCase() || 'auto';
+      primaryEffort = answer === 'auto' ? fallback : answer;
+      if (!levels.includes(primaryEffort)) throw new Error('Unsupported Lenka effort');
+    } else output.write('Lenka effort: native CLI configuration (no verified per-launch effort override).\n');
+    const externalWorkers = await chooseTeam({ catalog, primary: models.lenka, question: text => questions.question(text), write: text => output.write(text + '\n') });
+    return saveModelSelection(home, harness, models, undefined, { primaryEffort, externalWorkers });
   } finally { if (!prompt) questions.close(); }
 }
 
@@ -361,7 +380,7 @@ function shouldOpenHerdr(options, environment = process.env) {
 
 async function launchInstalledRuntime(runtime, options, dependencies = {}) {
   const refreshed = (dependencies.refreshProjectRuntime ?? refreshProjectRuntime)({ project: fs.realpathSync(options.project),
-    harness: runtime.harness, manifest: runtime.manifest });
+    harness: runtime.harness, manifest: runtime.manifest, selection: loadModelSelection(homeDirectory(), runtime.harness) });
   console.log(options.workspace === 'solo' && !options.noLaunch ? '\nStarting Lenka in Solo…' : '\nLenka is ready.');
   console.log(`Project: ${options.project}`);
   console.log(`Harness: ${runtime.harness}`);
@@ -696,6 +715,7 @@ function report(options) {
 }
 
 async function main(argv = process.argv.slice(2)) {
+  if (argv[0] === 'delegate') return (await import('./cross-worker.mjs')).crossWorkerCli(argv.slice(1));
   if (argv[0] === 'worker') return (await import('./native-solo-worker-cli.mjs')).workerCli(argv.slice(1));
   const options = parse(argv);
   if (options.command === 'help') {
