@@ -363,7 +363,7 @@ async function setup(options, { continueToLaunch = false } = {}) {
     }
     if (!continueToLaunch && options.activeSelection?.scope === 'once') {
       prompt.close();
-      return up({...options,harness,harnessExplicit:true,workspace:workspace.id,workspaceExplicit:true,ask:false});
+      return up({...options,harness,harnessExplicit:true,workspace:workspace.id,herdr:workspace.id === 'herdr',workspaceExplicit:true,ask:false});
     }
     return 0;
   } finally {
