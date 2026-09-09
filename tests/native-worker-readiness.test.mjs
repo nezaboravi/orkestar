@@ -25,11 +25,11 @@ function fixture() {
 
 test('readiness proves bounded installed roles, Solo tool, browser artifact and session ceiling without launching a worker', async () => {
   const f = fixture();
-  const result = await inspectNativeWorkerReadiness({ project: f.project, harness: 'codex', profiles: ['code-review', 'code-review'], requireBrowser: true, plannedWorkerCount: 12 }, {
+  const result = await inspectNativeWorkerReadiness({ project: f.project, harness: 'codex', profiles: ['code-review', 'code-review'], requireBrowser: true, plannedWorkerCount: 2 }, {
     invoke: f.invoke, verifySoloBinary: value => value, probeBrowser: async () => ({ ready: true, artifact: { sha256: 'a'.repeat(64), relativePath: '.agent-orchestra/browser/readiness.png', bytes: 12 } }),
   });
   assert.equal(result.status, 'ready'); assert.equal(result.ready, true); assert.deepEqual(result.profiles, ['code-review']);
-  assert.equal(result.sessionCeiling, 12); assert.equal(result.continuationSupported, false); assert.equal(result.capacityReservationSupported, false);
+  assert.equal(result.sessionCeiling, 2); assert.equal(result.continuationSupported, false); assert.equal(result.capacityReservationSupported, false);
   assert.match(result.limitations.join('\n'), /requested count only/);
   assert.ok(result.checks.every(check => check.status === 'ready'));
 });

@@ -11,8 +11,8 @@ export function assessNativeReview(worker, requiredBuilderRunIds, chronology) {
   const blockers = [];
   if (worker?.readOnly !== true || worker?.role !== 'reviewer' || verdict?.verdict !== 'APPROVED') blockers.push('A completed read-only reviewer APPROVED verdict is required.');
   if (!validIds || missingBuilderRunIds.length) blockers.push('The review must cover every builder run for this contract, including earlier writes and repairs.');
-  if (!chronology) blockers.push('Collect every builder result before launching review, then collect that review before auditing.');
+  if (!chronology) blockers.push('Collect every builder result before launching review, then collect the independent check before reporting.');
   if (!['security', 'performance'].every(category => ['PASS', 'NOT_APPLICABLE'].includes(verdict?.[category]?.status) && evidence(verdict[category].evidence))) blockers.push('Security and performance each require an accepted status and evidence.');
   return { ready: blockers.length === 0, requiredBuilderRunIds, missingBuilderRunIds, blockers,
-    nextAction: blockers.length ? 'Collect all builder results, dispatch one independent review covering every requiredBuilderRunId, collect its result, then dispatch the auditor.' : 'Review coverage is complete; auditor dispatch may proceed.' };
+    nextAction: blockers.length ? 'Collect all builder results, dispatch one independent review covering every requiredBuilderRunId, collect its result and acceptance proof, then finalize the report.' : 'Review coverage is complete; finalize the report when acceptance proof is complete.' };
 }

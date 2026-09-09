@@ -1,6 +1,19 @@
 # Release notes
 
-## Unreleased — dispatch prerequisites
+## 0.1.6 — 2026-09-09
+
+- Publish the previously local bounded worker sessions, receipt-bound continuation,
+  and combined independent review and acceptance checks.
+- Codex Lenka defaults to GPT-6 Astra with low (light) reasoning. Other Codex
+  worker and review routes remain separate. OpenCode retains autonomous verified
+  routing without requiring or applying saved model choices.
+- Preserve machine-specific model setup for the other supported harnesses.
+- Include the model-selection dependency in fresh Codex and Claude worker MCP
+  installations; verify the installed server can initialize in a subprocess.
+- The separate unpublished mixed-route runtime-refresh repair is not included.
+  Existing project sessions must be relaunched safely to adopt installed updates.
+
+### Dispatch prerequisites
 
 - Single and wave dispatches can declare required input files, dependency
   directories and capabilities. Invalid declared prerequisites stop the whole

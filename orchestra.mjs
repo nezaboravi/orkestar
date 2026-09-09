@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { loadModelSelection, selectionRoutes, selectionDigest, validSelection } from './model-selection.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -826,14 +827,16 @@ function resolveExecutableCandidates(home, inventory, candidatesByKey, probeMode
   return { routes, probes: [...probes.values()], blockedProviders: [...blockedProviders] };
 }
 
-function resolveExecutableModels(home, inventory, probeModel = modelProbe, tool = 'opencode') {
+function resolveExecutableModels(home, inventory, probeModel = modelProbe, tool = 'opencode', selection = null) {
+  if (selection) return resolveExecutableCandidates(home, inventory, Object.fromEntries(Object.entries(selectionRoutes(selection).roles).map(([key, model]) => [key, [model]])), probeModel, tool);
   const candidates = tool === 'kimi' || tool === 'cursor'
     ? Object.fromEntries(Object.keys(declaredRoles(tool)).map((role) => [role, inventory]))
     : declaredRoles(tool);
   return resolveExecutableCandidates(home, inventory, candidates, probeModel, tool);
 }
 
-function resolveExecutableFactoryModels(home, inventory, probeModel = modelProbe, tool = 'opencode') {
+function resolveExecutableFactoryModels(home, inventory, probeModel = modelProbe, tool = 'opencode', selection = null) {
+  if (selection) return resolveExecutableCandidates(home, inventory, Object.fromEntries(Object.entries(selectionRoutes(selection).factory).map(([key, model]) => [key, [model]])), probeModel, tool);
   const candidates = tool === 'kimi' || tool === 'cursor'
     ? Object.fromEntries(Object.keys(declaredClasses(tool)).map((modelClass) => [modelClass, inventory]))
     : declaredClasses(tool);
@@ -921,7 +924,7 @@ function reasoningForClass(tool, modelClass) {
   return tool === 'codex' ? boundedReasoningEffort(reasoningPolicy(tool).classes?.[modelClass]) : null;
 }
 
-function runtimeManifest(tool, resolvedFactoryModels = {}, resolvedRoles = {}) {
+function runtimeManifest(tool, resolvedFactoryModels = {}, resolvedRoles = {}, selection = null) {
   const factory = orchestraConfig.agentFactory || {};
   const primaryModelClass = orchestraConfig.modelPolicy?.classes?.coordination || 'mid';
   const profiles = Object.fromEntries(Object.entries(factory.profiles || {}).map(([name, profile]) => {
@@ -938,13 +941,14 @@ function runtimeManifest(tool, resolvedFactoryModels = {}, resolvedRoles = {}) {
   }));
   // Codex has an explicit Lenka route. Other harnesses retain their existing
   // coordination-class selection when they have no Lenka-specific candidate.
-  const primaryModel = tool === 'codex'
+  const primaryModel = resolvedRoles.lenka ? resolvedRoles.lenka : tool === 'codex'
     ? selectedAgentModel('lenka', resolvedRoles, resolvedFactoryModels) || resolvedFactoryModels[primaryModelClass] || null
     : resolvedFactoryModels[primaryModelClass] || null;
   const primaryReasoningEffort = selectedAgentReasoning('lenka', tool) || reasoningForClass(tool, primaryModelClass);
   return `${JSON.stringify({
     schemaVersion: 1,
     routingRevision: 3,
+    ...(selection ? { modelSelection: selectionDigest(selection) } : {}),
     harness: tool,
     lifecycle: factory.lifecycle,
     unknownCapabilityPolicy: factory.unknownCapabilityPolicy,
@@ -987,7 +991,7 @@ function buildPlan(options) {
       operations.push({ target: personaTarget(tool, options.home), content: personaContent, kind: `${tool} persona` });
       operations.push({
         target: path.join(options.home, '.agent-orchestra', 'runtime', `${tool}.json`),
-        content: runtimeManifest(tool, resolvedFactoryModels, resolvedModels),
+        content: runtimeManifest(tool, resolvedFactoryModels, resolvedModels, options.modelSelectionsByTool?.[tool]),
         kind: `${tool} global runtime manifest`,
       });
       if (tool === 'opencode') {
@@ -1023,7 +1027,7 @@ function buildPlan(options) {
       }
       operations.push({
         target: path.join(options.project, '.agent-orchestra', 'runtime', `${tool}.json`),
-        content: runtimeManifest(tool, resolvedFactoryModels, resolvedModels),
+        content: runtimeManifest(tool, resolvedFactoryModels, resolvedModels, options.modelSelectionsByTool?.[tool]),
         kind: `${tool} runtime manifest`,
       });
       if (tool === 'opencode') {
@@ -1235,19 +1239,23 @@ function doctor(options) {
     const toolVersion = version(tools[tool].command);
     check(Boolean(toolVersion), `${tool} CLI`, toolVersion || 'not found');
   }
+  options.modelSelectionsByTool = {};
   options.resolvedModelsByTool = {};
   options.resolvedFactoryModelsByTool = {};
   for (const tool of options.selectedTools.filter((candidate) => Object.keys(declaredRoles(candidate)).length)) {
     const inventory = options.structural && tool === 'claude' ? declaredModels(tool) : modelInventory(options.home, tool);
+    const selection = tool === 'opencode' ? null : loadModelSelection(options.home, tool, undefined, { strict: true });
+    if (selection && !validSelection(selection, inventory)) throw new Error('A selected model is no longer listed. Run lenka setup to choose again.');
+    if (selection) options.modelSelectionsByTool[tool] = selection;
     const probeCache = new Map();
     const probe = (home, model) => {
       if (!probeCache.has(model)) probeCache.set(model, probeForTool(tool)(home, model));
       return probeCache.get(model);
     };
-    const resolution = options.structural ? null : resolveExecutableModels(options.home, inventory, probe, tool);
-    const factoryResolution = options.structural ? null : resolveExecutableFactoryModels(options.home, inventory, probe, tool);
-    const resolved = resolution ? resolution.routes : resolveModels(inventory, tool);
-    const resolvedFactory = factoryResolution ? factoryResolution.routes : resolveFactoryModels(inventory, tool);
+    const resolution = options.structural ? null : resolveExecutableModels(options.home, inventory, probe, tool, selection);
+    const factoryResolution = options.structural ? null : resolveExecutableFactoryModels(options.home, inventory, probe, tool, selection);
+    const resolved = resolution ? resolution.routes : (selection ? selectionRoutes(selection).roles : resolveModels(inventory, tool));
+    const resolvedFactory = factoryResolution ? factoryResolution.routes : (selection ? selectionRoutes(selection).factory : resolveFactoryModels(inventory, tool));
     options.resolvedModelsByTool[tool] = resolved;
     options.resolvedFactoryModelsByTool[tool] = resolvedFactory;
     if (options.structural) {
@@ -1285,13 +1293,17 @@ function doctor(options) {
 function main(argv = process.argv.slice(2)) {
   const options = parseArgs(argv);
   if (options.command === 'doctor') return doctor(options);
+  options.modelSelectionsByTool = {};
   options.resolvedModelsByTool = {};
   options.resolvedFactoryModelsByTool = {};
   for (const tool of options.selectedTools.filter((candidate) => Object.keys(declaredRoles(candidate)).length)) {
     const inventory = options.structural && tool === 'claude' ? declaredModels(tool) : modelInventory(options.home, tool);
+    const selection = tool === 'opencode' ? null : loadModelSelection(options.home, tool, undefined, { strict: true });
+    if (selection && !validSelection(selection, inventory)) throw new Error('A selected model is no longer listed. Run lenka setup to choose again.');
+    if (selection) options.modelSelectionsByTool[tool] = selection;
     if (options.structural || options.dryRun) {
-      options.resolvedModelsByTool[tool] = resolveModels(inventory, tool);
-      options.resolvedFactoryModelsByTool[tool] = resolveFactoryModels(inventory, tool);
+      options.resolvedModelsByTool[tool] = (selection ? selectionRoutes(selection).roles : resolveModels(inventory, tool));
+      options.resolvedFactoryModelsByTool[tool] = (selection ? selectionRoutes(selection).factory : resolveFactoryModels(inventory, tool));
     }
     else {
       const probeCache = new Map();
@@ -1299,8 +1311,8 @@ function main(argv = process.argv.slice(2)) {
         if (!probeCache.has(model)) probeCache.set(model, probeForTool(tool)(home, model));
         return probeCache.get(model);
       };
-      const resolution = resolveExecutableModels(options.home, inventory, probe, tool);
-      const factoryResolution = resolveExecutableFactoryModels(options.home, inventory, probe, tool);
+      const resolution = resolveExecutableModels(options.home, inventory, probe, tool, selection);
+      const factoryResolution = resolveExecutableFactoryModels(options.home, inventory, probe, tool, selection);
       printModelProbes(resolution, tool);
       options.resolvedModelsByTool[tool] = resolution.routes;
       options.resolvedFactoryModelsByTool[tool] = factoryResolution.routes;

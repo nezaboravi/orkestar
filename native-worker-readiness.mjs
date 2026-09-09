@@ -1,3 +1,4 @@
+import { MAX_WORKER_SESSIONS } from './orchestra-limits.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
@@ -136,7 +137,7 @@ export async function inspectNativeWorkerReadiness(input, deps = {}) {
   const checks = [], limitations = ['No AI worker was started and no model request was made.',
     'Optional browser readiness writes one bounded local PNG artifact.', 'Provider capacity is unknown until an actual request.',
     'plannedWorkerCount is a requested count only; this check does not reserve capacity or account for existing sessions.',
-    'Native Solo workers cannot resume a prior worker session.'];
+    'Continuation requires a stopped receipt-bound session with unchanged role, model and permissions; Taskavel continuation is unsupported.'];
   let project, profiles = [];
   try {
     project = canonicalProject(input?.project);
@@ -147,11 +148,11 @@ export async function inspectNativeWorkerReadiness(input, deps = {}) {
     }
     if (input.taskavelProjectName !== undefined && !safeText(input.taskavelProjectName, 200)) throw new Error('taskavelProjectName must be a bounded project name');
     if (input.taskavelProjectName !== undefined && input.requireTaskavel !== true) throw new Error('taskavelProjectName requires requireTaskavel:true');
-    if (input.plannedWorkerCount !== undefined && (!Number.isSafeInteger(input.plannedWorkerCount) || input.plannedWorkerCount < 0 || input.plannedWorkerCount > 12)) throw new Error('plannedWorkerCount must be a whole number from 0 to 12');
+    if (input.plannedWorkerCount !== undefined && (!Number.isSafeInteger(input.plannedWorkerCount) || input.plannedWorkerCount < 0 || input.plannedWorkerCount > MAX_WORKER_SESSIONS)) throw new Error('plannedWorkerCount must be a whole number from 0 to 2');
   } catch (error) {
     checks.push({ name: 'request', status: 'BLOCKED', message: error instanceof Error ? error.message : 'Invalid readiness request' });
     return { status: 'BLOCKED', ready: false, project: input?.project ?? null, harness: input?.harness ?? null, profiles,
-      continuationSupported: false, capacityReservationSupported: false, checks, limitations };
+      continuationSupported: checks.some(item => item.name === 'continuation' && item.status === 'ready'), capacityReservationSupported: false, checks, limitations };
   }
   const runtimeResult = { value: null };
   check('runtime', () => {
@@ -196,9 +197,15 @@ export async function inspectNativeWorkerReadiness(input, deps = {}) {
     if (preflight?.status !== 'connected') throw new Error('Native Taskavel OAuth readiness was not proven');
     return { status: 'connected', verifiedProjectName: projectName, binding: bindingPending ? 'pending' : '.agent-orchestra/runtime/taskavel-binding.json', bindingPending };
   }, checks);
-  if (input.requireContinuation === true) checks.push({ name: 'continuation', status: 'BLOCKED', message: 'Native Solo workers do not support continuation.' });
+  if (input.requireContinuation === true) check('continuation', () => {
+    if (!solo.binary || profiles.includes('taskavel')) throw new Error('Continuation is unavailable for the requested route.');
+    const args = input.harness === 'codex' ? ['exec', 'resume', '--help'] : ['--help'];
+    const result = (deps.invoke ?? spawnSync)(solo.binary, args, { cwd: project, encoding: 'utf8', timeout: 10000 });
+    if (result.status !== 0 || !/resume/.test(result.stdout ?? '')) throw new Error('Native CLI continuation was not verified.');
+    return { supported: true };
+  }, checks);
   const blocked = checks.some(item => item.status === 'BLOCKED');
   return { status: blocked ? 'BLOCKED' : 'ready', ready: !blocked, project, harness: input.harness, profiles,
-    ...(input.plannedWorkerCount !== undefined ? { plannedWorkerCount: input.plannedWorkerCount, sessionCeiling: 12 } : { sessionCeiling: 12 }),
-    continuationSupported: false, capacityReservationSupported: false, checks, limitations };
+    ...(input.plannedWorkerCount !== undefined ? { plannedWorkerCount: input.plannedWorkerCount, sessionCeiling: MAX_WORKER_SESSIONS } : { sessionCeiling: MAX_WORKER_SESSIONS }),
+    continuationSupported: checks.some(item => item.name === 'continuation' && item.status === 'ready'), capacityReservationSupported: false, checks, limitations };
 }

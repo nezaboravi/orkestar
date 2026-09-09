@@ -27,11 +27,11 @@
     "entrypoint": "lenka",
     "workflow": [
       { "phase": "design", "role": "product-designer", "when": "material-ux-ui-decision-required" },
-      { "phase": "plan", "role": "dev-planner" },
-      { "phase": "build", "role": "dev-builder" },
-      { "phase": "verify", "role": "dev-tester" },
+      { "phase": "plan", "role": "dev-planner", "when": "specialist-needed-within-approved-budget" },
+      { "phase": "build", "role": "dev-builder", "when": "specialist-needed-within-approved-budget" },
+      { "phase": "verify", "role": "dev-tester", "when": "specialist-needed-within-approved-budget" },
       { "phase": "review", "role": "reviewer" },
-      { "phase": "prove", "role": "dev-auditor" }
+      { "phase": "prove", "role": "dev-auditor", "when": "specialist-needed-within-approved-budget" }
     ]
   },
   "scopeProtocol": {
@@ -44,7 +44,7 @@
   },
   "agentFactory": {
     "enabled": true,
-    "lifecycle": "one-run",
+    "lifecycle": "outcome-session",
     "unknownCapabilityPolicy": "fail-closed",
     "requireExactPermissionEnvelope": true,
     "requireIndependentProofAfterWrites": true,
@@ -161,7 +161,7 @@
           },
           "roles": {
             "product-designer": "high",
-            "lenka": "medium",
+            "lenka": "low",
             "dev-lead": "medium",
             "dev-planner": "medium",
             "dev-builder": "medium",
@@ -175,7 +175,7 @@
           "strongest": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]
         },
         "roles": {
-          "lenka": ["gpt-5.6-terra", "gpt-6-astra", "gpt-5.6-sol"],
+          "lenka": ["gpt-6-astra", "gpt-5.6-terra", "gpt-5.6-sol"],
           "product-designer": ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
           "dev-lead": ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol"],
           "dev-planner": ["gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol"],

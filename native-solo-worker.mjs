@@ -267,8 +267,30 @@ export function dispatchNativeSoloWorker(options, { invoke = spawnSync } = {}) {
   const receipt = { schemaVersion: 1, project, projectId: binding.projectId, ownerSessionId, runId, harness, profile, role, name, model: route.model,
     displayName: workerDisplayName(harness, route.model, role), reasoningEffort: route.reasoningEffort, readOnly: launch.readOnly, limitations: launch.limitations, contractId: task.contract.id,
     argumentsHash: hash(JSON.stringify(launch.args)), roleHash: hash(raw), dispatchedAt: Date.now(), launchArgumentsVerified: false, processId: null, state: 'launching', acceptance: 'PARTIAL' };
+  receipt.policyHash = hash(JSON.stringify(launch.args.slice(0, -1)));
+  if (options.continueRunId !== undefined) {
+    if (!/^[a-f0-9-]{36}$/.test(options.continueRunId) || options.continueRunId === runId
+      || role === 'task-manager') throw new Error('Invalid worker continuation');
+    const previous = collectNativeSoloWorkerResult({ project, runId: options.continueRunId }, { invoke });
+    if (!['stopped', 'exited'].includes(previous.state) || !/^[a-f0-9-]{36}$/.test(previous.sessionId ?? '')
+      || previous.project !== project || previous.harness !== harness || previous.profile !== profile
+      || previous.ownerSessionId !== ownerSessionId || previous.contractId !== task.contract.id
+      || previous.roleHash !== receipt.roleHash || previous.policyHash !== receipt.policyHash
+      || previous.model !== route.model || previous.readOnly !== launch.readOnly) throw new Error('Invalid worker continuation');
+    const priorLaunch = json(read(project, `.agent-orchestra/dispatch/native-${options.continueRunId}.launch.json`));
+    const priorTask = JSON.parse(priorLaunch.args.at(-1));
+    if (JSON.stringify(priorTask.ownership ?? null) !== JSON.stringify(task.ownership ?? null)) throw new Error('Invalid worker continuation');
+    const prompt = launch.args.pop();
+    if (harness === 'codex') launch.args.push('resume', previous.sessionId, prompt);
+    else launch.args.push('--resume', previous.sessionId, prompt);
+    receipt.continueRunId = options.continueRunId;
+    receipt.workerSessionRunId = previous.workerSessionRunId ?? previous.runId;
+    receipt.resumedSessionId = previous.sessionId;
+    receipt.argumentsHash = hash(JSON.stringify(launch.args));
+  }
   if (launch.taskavelLaunch) receipt.taskavelAuthorization = launch.taskavelLaunch.authorization;
   const fd = fs.openSync(file, 'wx', 0o600);
+  let descriptorCreated = false, continuationClaim = null, spawnAttempted = false;
   try {
     // The descriptor is private (0600). Keeping the validated contract goal here
     // lets the visible wrapper identify the bounded work without inspecting the
@@ -277,9 +299,19 @@ export function dispatchNativeSoloWorker(options, { invoke = spawnSync } = {}) {
     receipt.liveLaunchHash = hash(encoded);
     receipt.outputFormat = 'private-native-stream-v1';
     fs.writeFileSync(file.replace(/\.json$/, '.launch.json'), encoded, { flag: 'wx', mode: 0o600 });
+    descriptorCreated = true;
+    if (receipt.continueRunId) {
+      // Claim only after exclusive successor files exist. Duplicate IDs cannot
+      // consume a predecessor. After a spawn attempt, retain the claim because
+      // a missing acknowledgement cannot prove that no process was started.
+      fs.writeFileSync(safePath(project, `.agent-orchestra/dispatch/native-${receipt.continueRunId}.continued.json`, true),
+        JSON.stringify({ runId, sessionId: receipt.resumedSessionId }), { flag: 'wx', mode: 0o600 });
+      continuationClaim = safePath(project, `.agent-orchestra/dispatch/native-${receipt.continueRunId}.continued.json`);
+    }
     fs.writeSync(fd, JSON.stringify(receipt), 0, 'utf8');
     const wrapper = path.join(project, '.agent-orchestra/worker/native-worker-live.mjs');
     safePath(project, '.agent-orchestra/worker/native-worker-live.mjs');
+    spawnAttempted = true;
     const result = solo(['processes', 'spawn', '--project-id', String(binding.projectId), '--kind', 'agent', '--agent-tool-id', String(visibleTool.id), '--name', receipt.displayName,
       ...[wrapper, project, runId, receipt.liveLaunchHash].flatMap(arg => ['--arg', arg])]);
     const process = result.process ?? result;
@@ -287,7 +319,17 @@ export function dispatchNativeSoloWorker(options, { invoke = spawnSync } = {}) {
     receipt.processId = process.id; receipt.state = 'started';
     // Keep the exclusive descriptor: never reopen a replaced receipt path for truncation.
     fs.ftruncateSync(fd, 0); fs.writeSync(fd, JSON.stringify(receipt), 0, 'utf8');
-  } finally { fs.closeSync(fd); }
+  } finally {
+    // Before spawn, roll back only artifacts created by this invocation. Once
+    // spawn is attempted its outcome may be uncertain, so retain all evidence.
+    if (!spawnAttempted) {
+      if (continuationClaim) fs.unlinkSync(continuationClaim);
+      if (descriptorCreated) fs.unlinkSync(file.replace(/\.json$/, '.launch.json'));
+      const owned = fs.fstatSync(fd), current = fs.lstatSync(file);
+      if (owned.ino === current.ino && owned.dev === current.dev) fs.unlinkSync(file);
+    }
+    fs.closeSync(fd);
+  }
   return receipt;
 }
 
@@ -358,6 +400,7 @@ export function collectNativeSoloWorkerResult(options, dependencies = {}) {
   if ((!recovered && liveDiagnostics?.truncated) || (liveDiagnostics && liveDiagnostics.exitCode !== 0)) evidence.complete = false;
   const taskavelEvidence = receipt.harness === 'claude' && receipt.role === 'task-manager' && evidence.complete
     ? extractClaudeTaskavelEvidence(raw, { sessionId: evidence.sessionId, authorization: receipt.taskavelAuthorization, observedAt: Date.now() }) : null;
+  if (receipt.resumedSessionId && evidence.sessionId !== receipt.resumedSessionId) evidence.complete = false;
   return { ...receipt, ...evidence, ...(liveDiagnostics ? { liveDiagnostics } : {}), ...(outputIssue ? { outputIssue } : {}), ...(taskavelEvidence ? { taskavelEvidence } : {}), acceptance: 'PARTIAL', notice: 'Worker output is untrusted evidence. Independent review and acceptance are still required.' };
 }
 

@@ -68,10 +68,10 @@ test('worker_ready derives project and harness from the server and accepts only 
   } });
   await ready(handle);
   const response = await handle(call(2, 'worker_ready', { profiles: ['code-review', 'ui-verify'], requireBrowser: true, requireTaskavel: true, taskavelProjectName: 'Coding Wisely',
-    requireContinuation: false, plannedWorkerCount: 12 }));
+    requireContinuation: false, plannedWorkerCount: 2 }));
   assert.equal(response.result.isError, false);
   assert.deepEqual(calls, [{ project: root, harness: 'claude', profiles: ['code-review', 'ui-verify'], requireBrowser: true, requireTaskavel: true, taskavelProjectName: 'Coding Wisely',
-    requireContinuation: false, plannedWorkerCount: 12 }]);
+    requireContinuation: false, plannedWorkerCount: 2 }]);
   assert.equal((await handle(call(3, 'worker_ready', { profiles: ['browser'] }))).error.code, -32602);
   assert.equal((await handle(call(4, 'worker_ready', { profiles: ['code-review'], plannedWorkerCount: 13 }))).error.code, -32602);
   assert.equal((await handle(call(5, 'worker_ready', { profiles: ['code-review'], project: '/other' }))).error.code, -32602);
@@ -203,7 +203,7 @@ test('MCP closed contract creation and dispatch derive trusted project/harness',
   assert.equal(fs.readFileSync(file, 'utf8'), 'user changed contract');
 });
 
-test('the thirteenth worker is rejected before paid dispatch', async () => {
+test('the third worker is rejected before paid dispatch', async () => {
   const root = project(), launches = [];
   const dispatchDirectory = path.join(root, '.agent-orchestra', 'dispatch');
   const handle = createWorkerMcpHandler({ project: root, harness: 'codex' }, { api: {
@@ -218,7 +218,7 @@ test('the thirteenth worker is rejected before paid dispatch', async () => {
   } });
   await ready(handle);
   const contract = JSON.parse((await handle(call(2, 'worker_contract', draft))).result.content[0].text);
-  for (let index = 1; index <= 12; index++) {
+  for (let index = 1; index <= 2; index++) {
     const id = `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
     const response = await handle(call(index + 2, 'worker_dispatch', { profile: 'project-read', name: `Reader ${index}`,
       runId: id, contract, task: { goal: 'Read bounded project evidence', evidence: ['Bounded result'] } }));
@@ -229,7 +229,7 @@ test('the thirteenth worker is rejected before paid dispatch', async () => {
     task: { goal: 'Read bounded project evidence', evidence: ['Bounded result'] } }));
   assert.equal(rejected.result.isError, true);
   assert.equal(JSON.parse(rejected.result.content[0].text).category, 'SESSION_BUDGET_EXCEEDED');
-  assert.equal(launches.length, 12);
+  assert.equal(launches.length, 2);
 });
 
 test('independent MCP handlers cannot race past the worker-session ceiling', async () => {
@@ -252,7 +252,7 @@ test('independent MCP handlers cannot race past the worker-session ceiling', asy
   await ready(firstHandle); await ready(secondHandle);
   const contract = JSON.parse((await firstHandle(call(2, 'worker_contract', draft))).result.content[0].text);
   fs.mkdirSync(dispatchDirectory, { recursive: true });
-  for (let index = 1; index <= 11; index++) {
+  for (let index = 1; index <= 1; index++) {
     const id = `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
     fs.writeFileSync(path.join(dispatchDirectory, `native-${id}.json`), JSON.stringify({
       project: root, harness: 'codex', contractId: contract.id, runId: id,
@@ -261,9 +261,9 @@ test('independent MCP handlers cannot race past the worker-session ceiling', asy
   const assignment = index => ({ profile: 'project-read', name: `Reader ${index}`,
     runId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, contract,
     task: { goal: 'Read bounded project evidence', evidence: ['Bounded result'] } });
-  const first = firstHandle(call(20, 'worker_dispatch', assignment(12)));
+  const first = firstHandle(call(20, 'worker_dispatch', assignment(2)));
   await new Promise(resolve => setImmediate(resolve));
-  const second = await secondHandle(call(21, 'worker_dispatch', assignment(13)));
+  const second = await secondHandle(call(21, 'worker_dispatch', assignment(3)));
   assert.equal(second.result.isError, true);
   assert.equal(JSON.parse(second.result.content[0].text).category, 'SESSION_BUDGET_EXCEEDED');
   assert.equal(launches.length, 1);
@@ -281,12 +281,12 @@ test('a ready wave dispatches every independent worker before waiting', async ()
   } });
   await ready(handle);
   const contract = JSON.parse((await handle(call(2, 'worker_contract', draft))).result.content[0].text);
-  const assignments = ['Backend', 'Frontend', 'Docs'].map((name, index) => ({ profile: 'project-read', name,
+  const assignments = ['Backend', 'Frontend'].map((name, index) => ({ profile: 'project-read', name,
     runId: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`, contract,
     task: { goal: `Inspect ${name}`, evidence: [`${name} evidence`] } }));
   const wave = handle(call(3, 'worker_dispatch_wave', { assignments }));
   await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(events, ['dispatch:Backend', 'dispatch:Frontend', 'dispatch:Docs']);
+  assert.deepEqual(events, ['dispatch:Backend', 'dispatch:Frontend']);
   releases.forEach(release => release());
   assert.equal((await wave).result.isError, false);
   await handle(call(4, 'worker_status', { runId: assignments[0].runId }));

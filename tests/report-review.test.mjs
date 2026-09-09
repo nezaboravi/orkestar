@@ -95,6 +95,17 @@ test('report requires independent security and performance approval before DONE'
     assert.deepEqual(saved.packet, args.trackerReconciliation);
     assert.match(saved.evidenceBoundary, /not independently established/);
   });
+  await t.test('Lenka plus one checker is sufficient but Lenka cannot approve herself', async () => {
+    const original = rows.slice();
+    rows.splice(0, rows.length, original[0], original[4]);
+    try {
+      assert.match(await execute(valid()), /ORKESTAR RUN DONE/);
+      const self = valid(); self.review.sessionId = 's0';
+      await assert.rejects(execute(self), /independent reviewer/);
+      const missing = valid(); delete missing.review;
+      await assert.rejects(execute(missing), /APPROVED independent review/);
+    } finally { rows.splice(0, rows.length, ...original); }
+  });
   const tokenKeys = ['tokens_input', 'tokens_output', 'tokens_reasoning', 'tokens_cache_read', 'tokens_cache_write'];
   for (const key of tokenKeys) for (const invalid of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1, null]) {
     await t.test(`invalid telemetry ${key} ${invalid} rejects DONE`, async () => {

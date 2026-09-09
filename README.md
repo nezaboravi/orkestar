@@ -2,16 +2,40 @@
 
 Lenka coordinates coding agents in your project using your own AI account.
 Orkestar provides the launcher, scoped workers, readable progress, and evidence
-collection. **Early release: 0.1.5.** Review the result before relying on it.
+collection. **Early release: 0.1.6.** Review the result before relying on it.
 
-See the [0.1.5 release notes](CHANGELOG.md) for the measured efficiency
-improvements, waiting fixes and verification results.
+See the [0.1.6 release notes](CHANGELOG.md) for model defaults, worker reuse
+and installation fixes.
+
+### Choose models on each computer
+
+OpenCode retains autonomous model routing: Lenka chooses from the verified available
+routes. It does not require or apply saved per-role model choices.
+
+`lenka setup` lists the selected tool's models and offers editable recommendations
+for Lenka, normal workers, light work, and independent review. Enter accepts the
+shown choice. Codex recommends Astra at low for Lenka, Terra for normal workers, Luna for light
+work, and Sol for review when listed; Claude proposes Sonnet, Haiku, and Opus.
+These are routing preferences, not measured price or account-access guarantees.
+Unknown models remain selectable but receive no invented capability ranking.
+Cursor and Kimi currently inherit one selected model across their native agents;
+setup explains this and asks for one model instead of offering ineffective overrides.
+
+Choices are saved locally per tool and bound to the OS machine identity and home
+directory. A different computer, missing choices, or a model no longer listed
+requires a new selection. Run `lenka setup` again to change them. A copied project
+manifest cannot override these choices. Setup makes no generation requests;
+first installation still performs the existing access checks for the selected
+models, and a failed selection stops instead of silently choosing another model.
+Claude's list contains supported aliases, not a verified account entitlement list.
+
 
 ## Install
 
 You need Git and an authenticated supported AI CLI. Node.js 20+ is required;
-the bootstrap can install an isolated runtime. Setup may make model requests
-using your account and backs up conflicting configuration when selected.
+the bootstrap can install an isolated runtime. First bootstrap/install access
+checks may make model requests using your account. Installation backs up
+conflicting configuration when selected.
 
 ```sh
 git clone https://github.com/nezaboravi/orkestar.git
@@ -39,7 +63,7 @@ First launch may request one **Orkestar Worker** custom-tool registration.
 The launcher prints the command; [setup instructions](docs/VISIBLE-WORKERS.md)
 explain where to paste it.
 
-For Codex, Lenka prefers **Terra at medium** for routine coordination when the account verifies access; Astra remains a verified escalation fallback.
+For Codex, Lenka defaults to **GPT-6 Astra at low (light)** when account access is verified. Worker and independent review models keep their separate routes.
 Implementation, testing, and review keep their separate model routes.
 The main Solo panel runs the selected CLI's **native editor**: Codex, Claude
 Code, Cursor Agent, Kimi or OpenCode. That CLI handles multiline paste,
@@ -48,10 +72,11 @@ new hook-trust requests. Follow the controls shown by your selected CLI.
 Where the selected adapter supports visible workers, their panels remain
 separately selectable, with readable progress.
 
-Give Lenka the outcome and acceptance criteria. A small change uses a builder,
-parallel focused testing and independent review, then an auditor. Accepted
-existing Taskavel cards can be closed through authenticated runtime operations,
-without another AI worker or another audit solely for bookkeeping.
+Give Lenka the outcome and acceptance criteria. For a small change she works
+directly and obtains one independent check, including tests, security,
+performance and acceptance. Delegated work normally uses one builder and one
+checker. Reuse those sessions for repairs. The default ceiling is two child
+launches per outcome; extra workers require an explicit budget extension.
 
 The failed meetup run is why this release focuses on readable progress and
 proportional work. It does not promise a fixed completion time.
@@ -59,7 +84,7 @@ proportional work. It does not promise a fixed completion time.
 ## Know the limits
 
 - Provider capacity can still fail. Readiness checks do not reserve quota.
-- Native Solo workers cannot resume an interrupted session.
+- Continuation is receipt-bound and adapter-specific; never silently replace a session.
 - Taskavel closeout requires explicit project/task authorization and fresh
   readback. It does not create projects or cards through this new runtime path.
 - Missing verification remains **PARTIAL**. A worker exiting is not acceptance.

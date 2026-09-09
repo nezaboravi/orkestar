@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { MAX_WORKER_SESSIONS } from './orchestra-limits.mjs';
+import { MAX_WORKER_SESSIONS, MAX_WORKER_RUNS } from './orchestra-limits.mjs';
 
 const RECEIPT_PATTERN = /^native-[a-f0-9-]{36}\.json$/;
 const CONTRACT_PATTERN = /^tc-[a-f0-9]{12}$/;
@@ -116,7 +116,7 @@ function durableReceiptCount(project, contractId) {
   const directory = path.join(project, '.agent-orchestra', 'dispatch');
   let directoryStat;
   try { directoryStat = fs.lstatSync(directory); }
-  catch (error) { if (error?.code === 'ENOENT') return 0; throw error; }
+  catch (error) { if (error?.code === 'ENOENT') return { sessions: 0, runs: 0 }; throw error; }
   if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) {
     throw new NativeWorkerBudgetError('Unsafe worker receipt directory', 'UNSAFE_RECEIPT_PATH');
   }
@@ -124,12 +124,16 @@ function durableReceiptCount(project, contractId) {
   if (names.length > MAX_RECORDS) {
     throw new NativeWorkerBudgetError('Worker receipt limit exceeded', 'UNSAFE_RECEIPT_PATH');
   }
-  let count = 0;
+  const sessions = new Set();
+  let runs = 0;
   for (const name of names) {
     const { value } = readRecord(path.join(directory, name), directory);
-    if (value?.project === project && value?.contractId === contractId) count++;
+    if (value?.project === project && value?.contractId === contractId) {
+      runs++;
+      sessions.add(value.workerSessionRunId ?? value.runId ?? name);
+    }
   }
-  return count;
+  return { sessions: sessions.size, runs };
 }
 
 function activeReservationCount(directory, project, contractId, now, staleMs) {
@@ -137,14 +141,14 @@ function activeReservationCount(directory, project, contractId, now, staleMs) {
   if (names.length > MAX_RECORDS) {
     throw new NativeWorkerBudgetError('Worker reservation limit exceeded', 'UNSAFE_BUDGET_RECORD');
   }
-  let count = 0;
+  let count = 0, runs = 0;
   for (const name of names) {
     const file = path.join(directory, name);
     let record;
     try { record = readRecord(file, directory); }
     catch (error) { if (error?.code === 'ENOENT') continue; throw error; }
     if (record.value?.project !== project || record.value?.contractId !== contractId
-      || !Number.isSafeInteger(record.value?.count) || record.value.count < 1 || record.value.count > MAX_WORKER_SESSIONS) {
+      || !Number.isSafeInteger(record.value?.count) || record.value.count < 0 || record.value.count > MAX_WORKER_SESSIONS) {
       throw new NativeWorkerBudgetError('Invalid worker reservation record', 'UNSAFE_BUDGET_RECORD');
     }
     if (deadAndStale(record, now, staleMs)) {
@@ -152,8 +156,9 @@ function activeReservationCount(directory, project, contractId, now, staleMs) {
       continue;
     }
     count += record.value.count;
+    runs += Math.max(1, record.value.count);
   }
-  return count;
+  return { sessions: count, runs };
 }
 
 export function createWorkerSessionBudget({
@@ -213,14 +218,15 @@ export function createWorkerSessionBudget({
     contractId,
     maximum: MAX_WORKER_SESSIONS,
     async reserve(count = 1) {
-      if (!Number.isSafeInteger(count) || count < 1 || count > MAX_WORKER_SESSIONS) {
+      if (!Number.isSafeInteger(count) || count < 0 || count > MAX_WORKER_SESSIONS) {
         throw new NativeWorkerBudgetError('Invalid worker session reservation size', 'INVALID_RESERVATION');
       }
       const lock = await acquireLock();
       try {
-        const current = durableReceiptCount(root, contractId)
-          + activeReservationCount(directory, root, contractId, now(), staleMs);
-        if (current + count > MAX_WORKER_SESSIONS) {
+        const durable = durableReceiptCount(root, contractId);
+        const reserved = activeReservationCount(directory, root, contractId, now(), staleMs);
+        if (durable.sessions + reserved.sessions + count > MAX_WORKER_SESSIONS
+          || durable.runs + reserved.runs + Math.max(1, count) > MAX_WORKER_RUNS) {
           throw new NativeWorkerBudgetError('Native worker session budget exceeded', 'SESSION_BUDGET_EXCEEDED');
         }
         const token = randomUUID();

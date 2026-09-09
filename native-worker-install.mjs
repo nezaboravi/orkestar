@@ -14,7 +14,7 @@ const dependencies = ['native-solo-worker-mcp.mjs', 'native-solo-worker.mjs', 'n
   'native-worker-readiness.mjs', 'native-tracker-operations.mjs',
   'native-solo-mirror.mjs', 'native-audit.mjs', 'native-worker-browser.mjs', 'native-worker-taskavel.mjs', 'native-taskavel-readback.mjs', 'native-taskavel-binding.mjs', 'native-worker-tracker.mjs',
   'native-worker-report.mjs', 'native-worker-summary.mjs', 'native-worker-coordination.mjs', 'report-tracker-gate.mjs', 'tracker-reconciliation.mjs',
-  'orchestra.mjs', 'AGENTS.md', 'orchestra.json'];
+  'orchestra.mjs', 'model-selection.mjs', 'AGENTS.md', 'orchestra.json'];
 const hash = value => createHash('sha256').update(value).digest('hex');
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 function read(file) {

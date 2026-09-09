@@ -35,8 +35,13 @@ function validatedRequiredTasks(reconciliation, now) {
  * transport and this module never accepts model prose, arbitrary tool names,
  * task creation, or a project chosen by the model.
  */
-export function validateTrackerCloseout({ contract, auditor, reconciliation, closeout }, { now = Date.now() } = {}) {
-  if (!contract?.id || !Array.isArray(contract.required) || auditor?.verdict !== 'DONE'
+export function validateTrackerCloseout({ contract, auditor, checker, reconciliation, closeout }, { now = Date.now() } = {}) {
+  if (!contract?.id || !Array.isArray(contract.required) || (auditor?.verdict !== 'DONE' && !(checker?.verdict === 'APPROVED'
+      && ['security', 'performance'].every(category => ['PASS', 'NOT_APPLICABLE'].includes(checker[category]?.status)
+        && Array.isArray(checker[category]?.evidence) && checker[category].evidence.length > 0)
+      && Array.isArray(checker.proof) && checker.proof.length === contract.required.length
+      && contract.required.every(required => checker.proof.some(proof => proof.criterionId === required.id
+        && proof.result === 'passed' && text(proof.method, 4000) && Array.isArray(proof.evidence) && proof.evidence.length > 0))))
     || !reconciliation || !exact(closeout, ['authorization', 'tasks'])) throw new Error('Invalid tracker close-out');
   const authorization = validateTaskavelAuthorization(closeout.authorization);
   const bound = contract.trackerAuthorization;

@@ -554,3 +554,35 @@ if (process.env.ORKESTAR_BROWSER_PROTOCOL_PROJECT) {
     assert.equal(preflightNativeWorkerBrowser({ project, harness, binary, launch }), true);
   });
 }
+
+for (const harness of ['codex', 'claude']) {
+  test(`${harness} continues the exact stopped session without changing its envelope`, t => {
+    const f = fixture(t, harness);
+    const first = dispatchNativeSoloWorker(f.options, f);
+    legacy(f);
+    const session = '11111111-1111-4111-8111-111111111111';
+    f.state.output = (harness === 'codex'
+      ? [{ type: 'thread.started', thread_id: session }, { type: 'turn.completed', usage: { input_tokens: 1, output_tokens: 1 } }]
+      : [{ type: 'system', subtype: 'init', session_id: session }, { type: 'result', subtype: 'success', session_id: session, result: 'Checked', usage: { input_tokens: 1, output_tokens: 1 } }]).map(JSON.stringify).join('\n');
+    const options = { ...f.options, runId: 'b1234567-1234-4123-8123-123456789012', continueRunId: first.runId };
+    assert.throws(() => dispatchNativeSoloWorker({ ...options, ownerSessionId: 'another-owner' }, f), /Invalid worker continuation/);
+    for (const [prefix, suffix] of [['d', '.json'], ['e', '.launch.json']]) {
+      const duplicate = `${prefix}1234567-1234-4123-8123-123456789012`;
+      fs.writeFileSync(path.join(f.project, `.agent-orchestra/dispatch/native-${duplicate}${suffix}`), '{}');
+      assert.throws(() => dispatchNativeSoloWorker({ ...options, runId: duplicate }, f), /EEXIST/);
+      assert.equal(fs.existsSync(path.join(f.project, `.agent-orchestra/dispatch/native-${first.runId}.continued.json`)), false);
+      if (suffix === '.launch.json') assert.equal(fs.existsSync(path.join(f.project, `.agent-orchestra/dispatch/native-${duplicate}.json`)), false);
+      else assert.equal(fs.existsSync(path.join(f.project, `.agent-orchestra/dispatch/native-${duplicate}.launch.json`)), false);
+    }
+    const second = dispatchNativeSoloWorker(options, f);
+    assert.equal(second.workerSessionRunId, first.runId);
+    assert.equal(second.resumedSessionId, session);
+    assert.equal(second.policyHash, first.policyHash);
+    const spec = JSON.parse(fs.readFileSync(path.join(f.project, `.agent-orchestra/dispatch/native-${second.runId}.launch.json`)));
+    assert.deepEqual(spec.args.slice(-3, -1), [harness === 'codex' ? 'resume' : '--resume', session]);
+    assert.equal(spec.args.some(arg => arg.includes('dangerously')), false);
+    assert.throws(() => dispatchNativeSoloWorker({ ...options, runId: 'c1234567-1234-4123-8123-123456789012' }, f), /EEXIST/);
+    assert.equal(fs.existsSync(path.join(f.project, '.agent-orchestra/dispatch/native-c1234567-1234-4123-8123-123456789012.json')), false);
+    assert.equal(fs.existsSync(path.join(f.project, '.agent-orchestra/dispatch/native-c1234567-1234-4123-8123-123456789012.launch.json')), false);
+  });
+}

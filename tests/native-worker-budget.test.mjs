@@ -43,9 +43,9 @@ function childReservation(project) {
   });
 }
 
-test('two independent Node processes racing for slot twelve produce exactly one reservation', async () => {
+test('two independent Node processes racing for slot two produce exactly one reservation', async () => {
   const project = fixture();
-  seedReceipts(project, 11);
+  seedReceipts(project, 1);
   const outcomes = await Promise.all([childReservation(project), childReservation(project)]);
   assert.deepEqual(outcomes.sort(), ['SESSION_BUDGET_EXCEEDED', 'reserved']);
 });
@@ -81,7 +81,33 @@ test('withReservation releases the temporary slot after a failed launch attempt'
   const project = fixture();
   const budget = createWorkerSessionBudget({ project, contractId });
   await assert.rejects(budget.withReservation(2, async () => { throw new Error('launch failed'); }), /launch failed/);
-  const fullBudget = await budget.reserve(12);
-  assert.equal(fullBudget.count, 12);
+  const fullBudget = await budget.reserve(2);
+  assert.equal(fullBudget.count, 2);
   fullBudget.release();
+});
+
+
+test('concurrent continuations reserve the final turn even without a new worker slot', async () => {
+  const project = fixture(); seedReceipts(project, 11);
+  const directory = path.join(project, '.agent-orchestra', 'dispatch');
+  const files = fs.readdirSync(directory);
+  files.forEach((file, index) => {
+    const receipt = JSON.parse(fs.readFileSync(path.join(directory, file)));
+    receipt.workerSessionRunId = index % 2 ? 'worker-b' : 'worker-a';
+    fs.writeFileSync(path.join(directory, file), JSON.stringify(receipt));
+  });
+  let launches = 0;
+  const launch = async () => {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    launches++;
+    const runId = '00000000-0000-4000-8000-000000000012';
+    fs.writeFileSync(path.join(directory, `native-${runId}.json`), JSON.stringify({ project, contractId, runId, workerSessionRunId: 'worker-a' }));
+  };
+  const first = createWorkerSessionBudget({ project, contractId });
+  const second = createWorkerSessionBudget({ project, contractId });
+  const results = await Promise.allSettled([first.withReservation(0, launch), second.withReservation(0, launch)]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(results.find(result => result.status === 'rejected').reason.code, 'SESSION_BUDGET_EXCEEDED');
+  assert.equal(launches, 1); assert.equal(fs.readdirSync(directory).length, 12);
+  await assert.rejects(first.reserve(0), error => error.code === 'SESSION_BUDGET_EXCEEDED');
 });

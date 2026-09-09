@@ -9,17 +9,19 @@ Call `worker_result` after each worker stops and **before** dispatching its
 dependent reviewer. This saves only an evidence hash and observation time,
 not a transcript. A code reviewer must start after all builder results were
 collected. Independent tester, browser QA and code review may then run in
-parallel. The auditor joins all their collected results before accepting work.
+parallel. One reviewer may combine verification and acceptance using the proof array below; a separate auditor is optional.
 Old receipts without dispatch timestamps cannot prove this sequence and yield
-`PARTIAL`. A changed result needs a new assignment/run ID and a new review.
+`PARTIAL`. A changed result needs a new turn/run ID and delta review in the same session.
 
 ## Reviewer final response
 
 The persisted immutable task contract is the required plan. Lenka may author it
 directly for a small specified change; a separate `dev-planner` worker is not
 mandatory. Any planner actually dispatched must still appear in the report and
-auditor coverage. Builder, tester, independent reviewer and auditor remain
-mandatory, with designer/browser QA required when their flags apply.
+independent checker coverage. One independent reviewer is mandatory; Lenka may
+implement directly. Separate builder, tester and auditor sessions are optional.
+Designer/browser QA remain required when their flags apply and need sufficient
+approved worker budget.
 
 Give the reviewer the actual run IDs, task contract and evidence. Require its
 entire final response to be JSON, without Markdown fences:
@@ -36,8 +38,8 @@ entire final response to be JSON, without Markdown fences:
 Use `CHANGES_REQUIRED` when repair is needed. A category may be
 `NOT_APPLICABLE` only with a change-specific explanation in its evidence.
 After repair, collect the builder result, then repeat affected verification and
-dispatch a new reviewer. The approved review must cover every builder run ID;
-a later write invalidates it. The auditor must also cover tester and QA results.
+continue the same reviewer with the scoped delta. The approved review must cover every builder run ID;
+a later write invalidates it. The acceptance checker must also cover any tester and QA results.
 
 An auditor decides only the immutable `contract.required` IDs. It must never
 invent a local-decision tracker criterion. A real contract requirement for final
@@ -118,3 +120,16 @@ actual model and cost remain unavailable; finite nonnegative Claude native
 when every worker reports one; missing is never zero. The selected model is separately
 labeled requested. Token totals cover collected workers only, not conductor
 usage or account billing. Missing accounting is not functional test failure.
+
+## Proportional default and continuation
+
+Use Lenka directly plus one independent reviewer, or one builder plus one
+reviewer. The reviewer includes `proof` with exactly one passed entry per
+REQUIRED criterion (`criterionId`, `result`, `method`, `evidence`). A separate
+tester or auditor is optional; missing independent proof never becomes DONE.
+Use `worker_dispatch` with `continueRunId` and a fresh turn `runId` to continue
+a stopped Codex/Claude session. The contract, role, model, owner and permissions
+must match. Every turn keeps its own immutable receipt and Solo process panel;
+the underlying native session is reused. Taskavel continuation is unsupported.
+Include every turn in reports; the two-worker ceiling counts unique session
+roots, and continuation is still bounded and consumes provider usage.

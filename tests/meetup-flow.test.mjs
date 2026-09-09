@@ -28,9 +28,9 @@ test('small-feature guidance formats before review and retains independent accep
   const leader = fs.readFileSync(new URL('../agents/lenka.md', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
   const builder = fs.readFileSync(new URL('../teams/dev/dev-builder.md', import.meta.url), 'utf8');
   const reviewer = fs.readFileSync(new URL('../agents/reviewer.md', import.meta.url), 'utf8');
-  assert.match(leader, /tracker setup before\n  coding/);
-  assert.match(leader, /formatting in the builder's handoff,\n  before independent checks/);
-  assert.match(leader, /mandatory review gates/);
+  assert.match(leader, /Lenka plans and implements small work directly/);
+  assert.match(leader, /formatting/);
+  assert.match(leader, /Independent approval is mandatory/);
   assert.match(builder, /formatting before handing off/);
   assert.match(reviewer, /exact diff/);
   assert.match(reviewer, /mandatory security\/performance/);

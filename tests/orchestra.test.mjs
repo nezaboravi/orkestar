@@ -47,7 +47,7 @@ permission:
   });
 });
 
-test('Claude conductor receives only exact worker MCP permissions without edit or shell escalation', () => {
+test('Claude conductor can implement locally while keeping exact worker MCP permissions', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-worker-tools-'));
   const plan = buildPlan({ selectedTools: ['claude'], home: root, project: root, projectOnly: true,
     resolvedModelsByTool: { claude: {} }, resolvedFactoryModelsByTool: { claude: {} } });
@@ -58,7 +58,10 @@ test('Claude conductor receives only exact worker MCP permissions without edit o
     'coord_scratchpad_read', 'coord_scratchpad_create', 'coord_scratchpad_append']) {
     assert.match(frontmatter, new RegExp(`  - mcp__orkestar_worker__${tool}\\n`));
   }
-  assert.doesNotMatch(frontmatter, /  - (Bash|Edit|Write)/);
+  assert.match(frontmatter, /  - Edit/);
+  assert.match(frontmatter, /  - Write/);
+  assert.doesNotMatch(frontmatter, /  - Bash\n/);
+  assert.match(frontmatter, /Bash\(git diff/);
   assert.doesNotMatch(frontmatter, /mcp__orkestar_worker__\*/);
   const reviewer = plan.operations.find(item => item.target === path.join(root, '.claude', 'agents', 'reviewer.md')).content.toString().split('---')[1];
   assert.doesNotMatch(reviewer, /mcp__orkestar_worker__/);
@@ -228,7 +231,7 @@ test('Kimi conversion preserves the main orchestrator and least-privilege role t
 
   assert.match(kimiAgent(lenka), /\$\{base_prompt\}/);
   assert.match(kimiAgent(lenka), /^  - Agent$/m);
-  assert.doesNotMatch(kimiAgent(lenka), /^  - (Write|Edit|Bash)$/m);
+  assert.match(kimiAgent(lenka), /^  - Write$/m);
   assert.match(kimiAgent(builder), /^  - (Write|Edit)$/m);
   assert.match(kimiAgent(builder), /^  - Bash$/m);
   assert.match(kimiAgent(auditor), /^  - Bash$/m);
@@ -384,15 +387,15 @@ test('model routing is adapter-specific', () => {
   assert.equal(opencode['dev-tester'], 'opencode-go/kimi-k2.7-code');
 });
 
-test('Codex Lenka prefers Terra for routine coordination while retaining escalation and review routes', () => {
+test('Codex Lenka defaults to Astra light while retaining separate worker and review routes', () => {
   const roles = resolveModels(['gpt-6-astra', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.6-sol'], 'codex');
-  assert.equal(roles.lenka, 'gpt-5.6-terra');
+  assert.equal(roles.lenka, 'gpt-6-astra');
   assert.equal(roles['dev-builder'], 'gpt-5.6-terra');
   assert.equal(roles['dev-tester'], 'gpt-5.6-luna');
   assert.equal(roles['dev-auditor'], 'gpt-5.6-sol');
   const manifest = JSON.parse(runtimeManifest('codex', { economy: 'gpt-5.6-luna', mid: 'gpt-5.6-terra', strongest: 'gpt-5.6-sol' }, roles));
-  assert.equal(manifest.primary.model, 'gpt-5.6-terra');
-  assert.equal(manifest.primary.reasoningEffort, 'medium');
+  assert.equal(manifest.primary.model, 'gpt-6-astra');
+  assert.equal(manifest.primary.reasoningEffort, 'low');
   assert.equal(manifest.routingRevision, 3);
 });
 
@@ -403,7 +406,7 @@ test('Codex Lenka falls back to the verified coordination model when Astra is un
     economy: 'gpt-5.6-luna', mid: 'gpt-5.6-terra', strongest: 'gpt-5.6-sol',
   }, roles));
   assert.equal(manifest.primary.model, 'gpt-5.6-terra');
-  assert.equal(manifest.primary.reasoningEffort, 'medium');
+  assert.equal(manifest.primary.reasoningEffort, 'low');
 });
 
 test('Codex fixed workflow roles follow their declared model classes', () => {
@@ -436,7 +439,7 @@ test('agent factory creates a one-run charter from the narrowest declared envelo
   }, 'codex', { economy: 'gpt-5.6-luna' });
 
   assert.match(charter.name, /^orchestra-inspect-the-recipe-migration-and-rep-[a-f0-9]{8}$/);
-  assert.equal(charter.lifecycle, 'one-run');
+  assert.equal(charter.lifecycle, 'outcome-session');
   assert.equal(charter.permissionEnvelope, 'explorer');
   assert.equal(charter.modelClass, 'economy');
   assert.equal(charter.model, 'gpt-5.6-luna');
@@ -502,10 +505,12 @@ test('Lenka primary remains provider-neutral', () => {
   assert.match(lenka, /Never ask the human to author this agent/);
   assert.match(lenka, /separate read-only\s+verifier/);
   assert.doesNotMatch(lenka, /create a project-local agent file \(`\.opencode/);
-  assert.equal(parsed.frontmatter.permission.read['*'], 'deny');
-  assert.equal(parsed.frontmatter.permission.read['.agent-orchestra/runtime/*.json'], 'allow');
-  assert.equal(parsed.frontmatter.permission.glob, 'deny');
-  assert.equal(parsed.frontmatter.permission.grep, 'deny');
+  assert.equal(parsed.frontmatter.permission.read, 'allow');
+  assert.equal(parsed.frontmatter.permission.edit, 'allow');
+  assert.equal(parsed.frontmatter.permission.glob, 'allow');
+  assert.equal(parsed.frontmatter.permission.grep, 'allow');
+  assert.equal(parsed.frontmatter.permission.external_directory, 'deny');
+  assert.equal(parsed.frontmatter.permission.bash['git reset*'], 'deny');
 });
 
 test('source permission envelopes do not pin any provider model', () => {
@@ -663,14 +668,14 @@ test('Codex runtime and generated roles pin reasoning effort by responsibility',
   });
   const role = (name) => plan.operations.find((operation) => operation.target.endsWith(`${path.sep}${name}.toml`)).content;
   assert.match(role('lenka'), /model = "gpt-6-astra"/);
-  assert.match(role('lenka'), /model_reasoning_effort = "medium"/);
+  assert.match(role('lenka'), /model_reasoning_effort = "low"/);
   assert.match(role('dev-lead'), /model_reasoning_effort = "medium"/);
   assert.match(role('dev-tester'), /model_reasoning_effort = "low"/);
   assert.match(role('dev-auditor'), /model_reasoning_effort = "high"/);
   const manifestOperation = plan.operations.find((operation) => operation.target.endsWith(`${path.sep}codex.json`));
   const manifest = JSON.parse(manifestOperation.content);
   assert.equal(manifest.primary.model, 'gpt-6-astra');
-  assert.equal(manifest.primary.reasoningEffort, 'medium');
+  assert.equal(manifest.primary.reasoningEffort, 'low');
   assert.equal(manifest.profiles['project-read'].reasoningEffort, 'low');
   assert.equal(manifest.profiles['project-write'].reasoningEffort, 'medium');
   assert.equal(JSON.parse(fs.readFileSync(path.join(repoRoot, 'orchestra.json'), 'utf8')).modelPolicy.maximumReasoningEffort, 'high');
@@ -682,8 +687,8 @@ test('source agents and Lenka policy prohibit reasoning above high', () => {
     assert.doesNotMatch(source, /^variant:\s*(?:xhigh|max|ultra)\s*$/m, name);
   }
   const lenka = fs.readFileSync(path.join(repoRoot, 'agents', 'lenka.md'), 'utf8');
-  assert.match(lenka, /independent outcome with `worker_dispatch_wave` before waiting/);
-  assert.match(lenka, /default worker-session budget is 12/);
+  assert.match(lenka, /one independent checker/);
+  assert.match(lenka, /default worker-session budget is 2/);
   assert.match(lenka, /Do not spawn a separate Taskavel worker for each/);
 });
 

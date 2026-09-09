@@ -169,8 +169,12 @@ can access them. This is capture readiness, not application acceptance.
 
 Readiness is an explicit tool and conductor instruction, not a mandatory
 dispatch gate. It does not reserve provider capacity or future worker slots.
-Native Solo workers cannot resume a prior session; requesting continuation
-readiness returns BLOCKED. Existing running sessions need restarting after an
+Native Codex/Claude Solo workers support receipt-bound continuation when local
+CLI capability is verified. Use `continueRunId` with a new turn ID and unchanged
+role, contract, model, ownership and permissions. Taskavel continuation remains
+unsupported. A new Solo panel records the turn; the native conversation is reused.
+An uncertain spawn failure retains its claim to prevent accidental duplicate
+workers; resolve the process state before any retry. Existing running sessions need restarting after an
 update to load the new bridge and instructions.
 
 ## Declared dispatch prerequisites

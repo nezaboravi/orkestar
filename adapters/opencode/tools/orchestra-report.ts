@@ -143,7 +143,7 @@ export default tool({
     const rows = JSON.parse(stdout) as SessionRow[]
     if (!rows.length) throw new Error(`OpenCode did not return session telemetry for ${context.sessionID}`)
     if (args.status === "DONE" && args.workflow === "development") {
-      for (const role of ["dev-planner", "dev-builder", "dev-tester", "reviewer", "dev-auditor"]) {
+      for (const role of ["reviewer"]) {
         if (!sessionHasRole(rows, role)) {
           throw new Error(`DONE development run requires a recorded ${role} session`)
         }

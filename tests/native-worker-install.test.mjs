@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -44,4 +45,17 @@ test('worker installation rejects unsafe project directories', () => {
     fs.symlinkSync(path.join(input.project, 'other'), path.join(input.project, '.agent-orchestra'));
     assert.throws(() => installNativeWorker({ ...input, harness: 'codex' }), /Unsafe/);
   }
+});
+
+for (const harness of ['codex', 'claude']) test(`${harness} installed MCP starts with all transitive dependencies`, () => {
+  const input = fixture();
+  const installed = installNativeWorker({ ...input, harness });
+  const result = spawnSync(process.execPath, [installed.serverPath, '--project', input.project, '--harness', harness], {
+    input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'installation-test', version: '1' } } }) + '\n',
+    encoding: 'utf8', timeout: 5000,
+  });
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+  const response = JSON.parse(result.stdout.trim());
+  assert.equal(response.id, 1);
+  assert.ok(response.result.serverInfo);
 });

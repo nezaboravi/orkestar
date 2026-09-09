@@ -100,7 +100,7 @@
       "required": ["enabled", "lifecycle", "unknownCapabilityPolicy", "requireExactPermissionEnvelope", "requireIndependentProofAfterWrites", "profiles"],
       "properties": {
         "enabled": { "const": true },
-        "lifecycle": { "const": "one-run" },
+        "lifecycle": { "const": "outcome-session" },
         "unknownCapabilityPolicy": { "const": "fail-closed" },
         "requireExactPermissionEnvelope": { "const": true },
         "requireIndependentProofAfterWrites": { "const": true },

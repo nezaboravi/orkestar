@@ -346,3 +346,82 @@ test('reported costs aggregate only complete finite nonnegative accounting witho
   const overflow = fixture(); overflow.workers.forEach(worker => { worker.cost = Number.MAX_VALUE; });
   assert.equal((await overflow.execute()).totals.cost, null);
 });
+
+function compactFixture(options = {}) {
+  const f = fixture({ ...options, capture: false });
+  for (const worker of [...f.workers]) {
+    if (!['dev-builder', 'reviewer'].includes(worker.role)) {
+      fs.unlinkSync(path.join(f.project, '.agent-orchestra/dispatch', `native-${worker.runId}.json`));
+      f.workers.splice(f.workers.indexOf(worker), 1);
+    }
+  }
+  f.report.workerRunIds = f.workers.map(w => w.runId);
+  f.report.designRequired = false; f.report.visualProofRequired = false;
+  const verdict = JSON.parse(f.workers[1].result);
+  verdict.reviewedRunIds = [f.workers[0].runId];
+  verdict.proof = [{ criterionId: 'R1', result: 'passed', method: 'Independent focused test', evidence: ['Observed required behavior'] }];
+  f.workers[1].result = JSON.stringify(verdict);
+  f.save();
+  captureNativeWorkerResult({ project: f.project, harness: 'codex', worker: f.workers[0] }, 2000);
+  return f;
+}
+
+test('one builder and one independent checker can prove completion', async () => {
+  const f = compactFixture();
+  const report = await f.execute();
+  assert.equal(report.status, 'DONE');
+  assert.equal(report.agents.length, 2);
+});
+
+for (const defect of ['missing', 'extra', 'failed', 'empty']) {
+  test(`combined check rejects ${defect} acceptance proof`, async () => {
+    const f = compactFixture(), verdict = JSON.parse(f.workers[1].result);
+    if (defect === 'missing') verdict.proof = [];
+    if (defect === 'extra') verdict.proof.push({ ...verdict.proof[0], criterionId: 'LD1' });
+    if (defect === 'failed') verdict.proof[0].result = 'failed';
+    if (defect === 'empty') verdict.proof[0].evidence = [];
+    f.workers[1].result = JSON.stringify(verdict); f.save();
+    assert.equal((await f.execute()).status, 'PARTIAL');
+  });
+}
+for (const field of ['sessionId', 'processId']) {
+  test(`combined check rejects writer self-approval through shared ${field}`, async () => {
+    const f = compactFixture(); f.workers[1][field] = f.workers[0][field]; f.save();
+    await assert.rejects(f.execute(), /worker identity/);
+  });
+}
+
+test('combined checker permits authorized tracker closeout and records accurate acceptance provenance', async () => {
+  const f = compactFixture({ trackerAuthorization: { projectName: 'Demo', taskIds: [41], operations: ['read', 'move-task', 'update-task'], externalWriteAuthorized: true } });
+  f.report.taskavel = 'synced';
+  f.report.trackerReconciliation = { projectId: 'name:Demo', checkedAt: 7000, requiredTasks: [{ taskId: '41', doneColumnId: 'name:Done', claimedComplete: true,
+    lastUpdateAttemptAt: 6800, proof: { accepted: true, evidenceIds: ['audit-proof'] } }], snapshots: [] };
+  f.report.trackerCloseout = { authorization: { projectId: null, projectName: 'Demo', taskIds: [41], operations: ['read', 'move-task', 'update-task'], externalWriteAuthorized: true },
+    tasks: [{ taskId: 41, doneColumnName: 'Done' }] };
+  let operations = 0;
+  const result = await finalizeNativeWorkerReport({ project: f.project, harness: 'codex', report: f.report }, {
+    collect: ({ runId }) => f.workers.find(worker => worker.runId === runId), now: () => 7000,
+    applyTrackerCloseout: async () => { operations++; return { projectId: 'name:Demo', receipts: [{ taskId: '41', completedAt: 6800 }] }; },
+    reconcileTracker: async () => ({ projectId: 'name:Demo', checkedAt: 7000, snapshots: [{ projectId: 'name:Demo', taskId: '41', columnId: 'name:Done', completed: true, readAt: 6900 }] }),
+  });
+  assert.equal(operations, 1); assert.equal(result.status, 'DONE');
+  f.report.trackerCloseout.authorization.taskIds = [42];
+  assert.equal((await f.execute()).status, 'PARTIAL');
+});
+for (const reversed of [false, true]) {
+  test(`report validates continuation identity regardless of order: reversed=${reversed}`, async () => {
+    const f = compactFixture();
+    const original = f.workers[0]; original.policyHash = 'same-policy'; original.ownerSessionId = 'owner';
+    const continuation = { ...original, runId: runId(8), processId: 8, continueRunId: original.runId,
+      resumedSessionId: original.sessionId, workerSessionRunId: original.runId, dispatchedAt: 2100 };
+    f.workers.push(continuation);
+    const verdict = JSON.parse(f.workers[1].result); verdict.reviewedRunIds.push(continuation.runId);
+    f.workers[1].result = JSON.stringify(verdict); f.save();
+    captureNativeWorkerResult({ project: f.project, harness: 'codex', worker: continuation }, 2500);
+    f.report.workerRunIds = f.workers.map(worker => worker.runId);
+    if (reversed) f.report.workerRunIds.reverse();
+    assert.equal((await f.execute()).status, 'DONE');
+    continuation.role = 'reviewer'; f.save();
+    await assert.rejects(f.execute(), /worker identity/);
+  });
+}

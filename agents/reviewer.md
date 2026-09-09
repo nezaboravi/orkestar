@@ -90,3 +90,14 @@ implementation: this role must run in a separate read-only session.
 - Send findings to Lenka, not directly to a builder. Lenka creates the scoped
   repair packet, then requests an independent re-review of the repaired diff.
   Out-of-scope discoveries remain report-only and require separate approval.
+
+## Combined independent check
+
+For a small outcome, act as the single independent checker of Lenka or the
+builder. Verify affected behavior, tests, security, performance and acceptance.
+Do not request another tester or auditor merely to repeat valid evidence.
+Return the native APPROVED verdict with security/performance evidence and a
+`proof` array: one `{criterionId, result:"passed", method, evidence:[...]}` per
+immutable REQUIRED criterion. Include all relevant writer run IDs in
+`reviewedRunIds`. Missing proof remains PARTIAL. Never approve your own writes.
+Route exact defects back to the same writer; recheck only changed behavior.

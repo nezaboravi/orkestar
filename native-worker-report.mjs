@@ -5,7 +5,7 @@ import { validateTaskContract } from './orchestra.mjs';
 import { collectNativeSoloWorkerResult } from './native-solo-worker.mjs';
 import { reportTrackerGate } from './report-tracker-gate.mjs';
 import { assessNativeReview } from './native-review-policy.mjs';
-import { MAX_WORKER_SESSIONS } from './orchestra-limits.mjs';
+import { MAX_WORKER_RUNS } from './orchestra-limits.mjs';
 import { validateTrackerCloseout } from './native-tracker-operations.mjs';
 
 const LIMIT = 262144;
@@ -80,14 +80,14 @@ function parseVerdict(worker) {
   try { const value = JSON.parse(worker.result); return value && typeof value === 'object' && !Array.isArray(value) ? value : null; }
   catch { return null; }
 }
-const covers = (value, required) => Array.isArray(value) && value.length <= MAX_WORKER_SESSIONS && value.every(id)
+const covers = (value, required) => Array.isArray(value) && value.length <= MAX_WORKER_RUNS && value.every(id)
   && new Set(value).size === value.length && required.every(runId => value.includes(runId));
 
 /** Recollect real worker output. Supplied tracker packet is validated, not network-authenticated. */
 export async function finalizeNativeWorkerReport({ project, harness, report }, { collect = collectNativeSoloWorkerResult, reconcileTracker, applyTrackerCloseout, now = Date.now } = {}) {
   if (!['codex', 'claude'].includes(harness) || !report || !id(report.reportId) || !Array.isArray(report.workerRunIds)
     || Object.keys(report).some(key => !['reportId', 'contract', 'workerRunIds', 'status', 'summary', 'workflow', 'designRequired', 'visualProofRequired', 'taskavel', 'trackerReconciliation', 'trackerCloseout', 'blockers'].includes(key))
-    || report.workerRunIds.length > MAX_WORKER_SESSIONS || !report.workerRunIds.every(id) || new Set(report.workerRunIds).size !== report.workerRunIds.length
+    || report.workerRunIds.length > MAX_WORKER_RUNS || !report.workerRunIds.every(id) || new Set(report.workerRunIds).size !== report.workerRunIds.length
     || !['DONE', 'PARTIAL', 'FAILED'].includes(report.status) || !['development', 'other'].includes(report.workflow)
     || !text(report.summary, 4000) || typeof report.designRequired !== 'boolean' || typeof report.visualProofRequired !== 'boolean'
     || !Array.isArray(report.blockers) || report.blockers.length > 100 || !Array.from(report.blockers).every(item => text(item))
@@ -98,26 +98,32 @@ export async function finalizeNativeWorkerReport({ project, harness, report }, {
   const stored = read(path.join(contractDirectory, 'task-contract.json'));
   if (hash(stored) !== hash(contract)) throw new Error('Invalid native report contract');
   const workers = [], captures = new Map(), launches = new Map(), trackerClosures = new Set(), blockers = [...report.blockers];
-  const seenSessions = new Set(), seenProcesses = new Set();
+  const seenSessions = new Map(), seenProcesses = new Set();
   const dispatchDirectory = directory(project, ['.agent-orchestra', 'dispatch']);
   const dispatchFiles = fs.readdirSync(dispatchDirectory).filter(name => /^native-[a-f0-9-]{36}\.json$/.test(name));
   if (dispatchFiles.length > 256) throw new Error('Native report receipt inventory exceeds limit');
+  const receipts = new Map();
   for (const name of dispatchFiles) {
     const receipt = read(path.join(dispatchDirectory, name));
+    receipts.set(receipt.runId, receipt);
     if (receipt.project === project && receipt.harness === harness && receipt.contractId === contract.id
       && !report.workerRunIds.includes(receipt.runId)) blockers.push('A dispatched worker for this contract is omitted from the report.');
   }
   for (const runId of report.workerRunIds) {
     const receiptFile = path.join(dispatchDirectory, `native-${runId}.json`);
-    const receipt = read(receiptFile);
+    const receipt = receipts.get(runId) ?? read(receiptFile);
     const launchedAt = count(receipt.dispatchedAt) && receipt.dispatchedAt <= now() ? receipt.dispatchedAt : null;
     const worker = await collect({ project, runId });
     if (receipt.project !== project || receipt.harness !== harness || receipt.contractId !== contract.id || receipt.runId !== runId
       || worker.project !== project || worker.harness !== harness || worker.contractId !== contract.id || worker.runId !== runId
       || worker.role !== receipt.role || worker.processId !== receipt.processId || worker.readOnly !== receipt.readOnly
       || !Number.isSafeInteger(worker.processId) || worker.processId < 1 || seenProcesses.has(worker.processId)
-      || (worker.sessionId && seenSessions.has(worker.sessionId))) throw new Error('Invalid native report worker identity');
-    seenProcesses.add(worker.processId); if (worker.sessionId) seenSessions.add(worker.sessionId);
+      ) throw new Error('Invalid native report worker identity');
+    seenProcesses.add(worker.processId);
+    if (worker.sessionId) {
+      const group = seenSessions.get(worker.sessionId) ?? [];
+      group.push(receipt); seenSessions.set(worker.sessionId, group);
+    }
     workers.push(worker); launches.set(runId, launchedAt);
     const authorization = receipt.taskavelAuthorization;
     const tracker = report.trackerReconciliation;
@@ -130,14 +136,31 @@ export async function finalizeNativeWorkerReport({ project, harness, report }, {
       && authorization.taskIds.every(taskId => tracker.requiredTasks.some(task => String(task.taskId) === String(taskId)))) {
       trackerClosures.add(runId);
     }
-    if (!finished(worker)) blockers.push(`Worker ${runId} has no successful stopped result.`);
-    else captures.set(runId, captureNativeWorkerResult({ project, harness, worker }, now()));
+  }
+  for (const [sessionId, group] of seenSessions) {
+    const roots = group.filter(receipt => !receipt.continueRunId);
+    if (roots.length !== 1) throw new Error('Invalid native report worker identity');
+    const successors = new Set();
+    for (const receipt of group.filter(item => item.continueRunId)) {
+      const previous = receipts.get(receipt.continueRunId);
+      if (!previous || !group.includes(previous) || successors.has(previous.runId)
+        || receipt.resumedSessionId !== sessionId || receipt.role !== previous.role
+        || receipt.readOnly !== previous.readOnly || !receipt.policyHash || receipt.policyHash !== previous.policyHash
+        || receipt.ownerSessionId !== previous.ownerSessionId || receipt.model !== previous.model
+        || receipt.dispatchedAt <= previous.dispatchedAt
+        || receipt.workerSessionRunId !== roots[0].runId) throw new Error('Invalid native report worker identity');
+      successors.add(previous.runId);
+    }
+  }
+  for (const worker of workers) {
+    if (!finished(worker)) blockers.push(`Worker ${worker.runId} has no successful stopped result.`);
+    else captures.set(worker.runId, captureNativeWorkerResult({ project, harness, worker }, now()));
   }
   const role = name => workers.filter(worker => worker.role === name);
   if (report.workflow === 'development') {
     // The validated, persisted immutable contract is the plan. A separate
     // planning specialist is optional; execution and independent proof are not.
-    for (const name of ['dev-builder', 'dev-tester', 'reviewer', 'dev-auditor',
+    for (const name of ['reviewer',
       ...(report.designRequired ? ['product-designer'] : []), ...(report.visualProofRequired ? ['frontend-qa'] : [])]) {
       if (!role(name).length) blockers.push(`Missing required ${name} worker.`);
     }
@@ -150,7 +173,7 @@ export async function finalizeNativeWorkerReport({ project, harness, report }, {
     && runIds.every(runId => captures.has(runId) && launches.get(worker.runId) >= captures.get(runId).observedAt);
   const review = reviews.find(worker => assessNativeReview(worker, checkedRuns, after(worker, checkedRuns)).ready);
   if (report.workflow === 'development' && !review) blockers.push('Independent security/performance review with evidence after all builder writes is missing.');
-  const auditor = role('dev-auditor').filter(worker => worker.readOnly === true).find(worker => {
+  let auditor = role('dev-auditor').filter(worker => worker.readOnly === true).find(worker => {
     const verdict = parseVerdict(worker);
     // Tracker closure follows independent acceptance. Its separate trusted
     // readback gate below prevents an audit -> closure -> audit cycle.
@@ -166,7 +189,19 @@ export async function finalizeNativeWorkerReport({ project, harness, report }, {
       && contract.required.every(requirement => verdict.proof.some(proof => proof?.criterionId === requirement.id
         && proof.result === 'passed' && text(proof.method) && strings(proof.evidence)));
   });
-  if (!auditor) blockers.push('Independent auditor acceptance covering every contract requirement is missing.');
+  // One independent checker can also prove acceptance. Legacy auditor packets
+  // remain valid; combining checks never permits a writer to approve itself.
+  if (!auditor && review) {
+    const verdict = parseVerdict(review);
+    const inspectedRuns = workers.filter(other => other.runId !== review.runId
+      && other.role !== 'reviewer' && !trackerClosures.has(other.runId)).map(other => other.runId);
+    if (covers(verdict?.reviewedRunIds, inspectedRuns) && after(review, inspectedRuns)
+      && Array.isArray(verdict.proof) && verdict.proof.length === contract.required.length
+      && new Set(verdict.proof.map(proof => proof?.criterionId)).size === contract.required.length
+      && contract.required.every(requirement => verdict.proof.some(proof => proof?.criterionId === requirement.id
+        && proof.result === 'passed' && text(proof.method) && strings(proof.evidence)))) auditor = review;
+  }
+  if (!auditor) blockers.push('Independent checker acceptance covering every contract requirement is missing.');
   if (builders.some(worker => worker.readOnly !== false)) blockers.push('Builder write envelope is not verified.');
   let trackerReconciliation = null;
   let trackerReport = report;
@@ -176,7 +211,8 @@ export async function finalizeNativeWorkerReport({ project, harness, report }, {
       // never a model worker or an additional auditor. The adapter owns OAuth
       // and must still provide a fresh readback below.
       if (!auditor || report.status !== 'DONE' || blockers.length || report.taskavel !== 'synced' || !report.trackerReconciliation || typeof applyTrackerCloseout !== 'function') throw new Error();
-      const closeout = validateTrackerCloseout({ contract, auditor: parseVerdict(auditor), reconciliation: report.trackerReconciliation,
+      const closeout = validateTrackerCloseout({ contract, auditor: auditor.role === 'dev-auditor' ? parseVerdict(auditor) : undefined,
+        checker: auditor.role === 'reviewer' ? parseVerdict(auditor) : undefined, reconciliation: report.trackerReconciliation,
         closeout: report.trackerCloseout }, { now: now() });
       const identity = `${project}\u0000${harness}\u0000${report.reportId}\u0000${contract.hash}\u0000${JSON.stringify(closeout)}`;
       let pending = closeoutReceipts.get(identity);
@@ -254,7 +290,8 @@ export async function finalizeNativeWorkerReport({ project, harness, report }, {
     contractId: contract.id, agents, totals: { tokens: count(total) ? total : null, cost: typeof costTotal === 'number' && Number.isFinite(costTotal) ? costTotal : null },
     accounting: 'Worker-only observed usage and native reported USD cost when available, not an account invoice. Aggregate input is not unique prompt size or a full-price charge; optional cached and uncached input details are retained only when validated. Conductor usage is excluded. Missing values remain unavailable. Requested model is not proof of actual model.',
     taskavel: report.taskavel, trackerReconciliation, review: reviewEvidence,
-    auditorRunId: auditor?.runId ?? null, proof, blockers: uniqueBlockers,
+    auditorRunId: auditor?.role === 'dev-auditor' ? auditor.runId : null,
+    acceptance: auditor ? { runId: auditor.runId, role: auditor.role } : null, proof, blockers: uniqueBlockers,
     evidenceBoundary: 'Collected native output proves role-linked worker statements, not their truth. Independent review/audit statements and supplied tracker packet remain evidence for human inspection.' };
   const content = encode(audit), revision = `${report.reportId}-${hash(audit).slice(0, 12)}-${randomUUID()}`;
   const savedPath = path.join(runs, `native-worker-${revision}.json`);

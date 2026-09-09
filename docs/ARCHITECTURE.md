@@ -47,7 +47,7 @@ phase packet, and a harness that cannot do so must report that limitation.
 
 An agent has two separate parts:
 
-1. **Ephemeral role charter** — a one-run identity, one outcome, model class,
+1. **Ephemeral role charter** — a reusable outcome identity, one outcome, model class,
    forbidden adjacent work, evidence contract, and lifecycle.
 2. **Durable permission envelope** — an audited harness definition that grants
    only a known capability such as project read, project write, verification,
@@ -106,16 +106,17 @@ database resets, credential changes, and unrequested external effects require
 the human. A non-destructive external write explicitly named in the requested
 outcome may proceed unattended and must still receive independent proof.
 
-Development execution has an additional structural boundary: Lenka is the lead
-and directly dispatches the planner, builder, tester, and auditor envelopes.
-This flat phase graph avoids nested-agent depth limits while preserving role
-separation. The builder cannot declare its own work complete; a recorded
-`dev-auditor` session supplies the final independent verdict. Material UI work
-also requires the design and frontend QA phases. The OpenCode report tool
-enforces these requirements before it accepts `DONE`. With OpenCode inside Solo,
-the phases use identity-checked visible sibling processes and native session
-records plus dedicated result artifacts. Codex instead uses native named
-subagents; they are not promised to appear as separate Solo processes.
+Development defaults to Lenka implementing directly with one independent checker,
+or one builder plus one checker. The default ceiling is two new workers per
+outcome, including replacements and descendants. Separate planner, tester and
+auditor sessions are optional; extra specialists need an explicit budget
+extension. One reviewer may cover security, performance and acceptance. The
+writer never approves its own work. Design and browser proof remain necessary
+when the outcome requires them. OpenCode and native Solo report gates retain
+independent review and evidence requirements. Native Codex/Claude Solo workers
+support receipt-bound continuation with unchanged scope and permissions;
+unsupported adapters must report that limitation instead of silently replacing
+a session.
 
 Taskavel setup is adapter-native. Each supported client registers the same
 public streamable HTTP endpoint under the exact `taskavel` name, invokes its

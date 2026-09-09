@@ -183,6 +183,7 @@ test('a stale verified route runs bootstrap before Lenka launches again', async 
   let selected = 0;
   const result = await up({ project, workspace: 'direct', workspaceExplicit: true, herdr: false,
     ask: false, harness: 'codex', conflict: 'backup', noLaunch: true }, {
+    ensureModelSelection: async () => null,
     loadPreferences: () => ({ harness: 'codex', workspace: 'direct' }),
     ensureHarnessAuthentication: async () => {},
     selectInstalledRuntime: () => (selected++ === 0 ? stale : refreshed),
@@ -206,6 +207,7 @@ test('a runtime launch error other than route revalidation does not trigger boot
   let bootstrapped = false;
   await assert.rejects(() => up({ project, workspace: 'direct', workspaceExplicit: true, herdr: false,
     ask: false, harness: 'codex', conflict: 'backup', noLaunch: true }, {
+    ensureModelSelection: async () => null,
     loadPreferences: () => ({ harness: 'codex', workspace: 'direct' }),
     ensureHarnessAuthentication: async () => {},
     selectInstalledRuntime: () => ({ harness: 'codex', manifest: { primary: { model: 'gpt-6-astra' } } }),

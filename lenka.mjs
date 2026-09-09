@@ -7,6 +7,8 @@ import process from 'node:process';
 import readline from 'node:readline/promises';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { modelInventory } from './orchestra.mjs';
+import { chooseModels, loadModelSelection, saveModelSelection, validSelection, runtimeMatchesSelection } from './model-selection.mjs';
 import { herdrSessionName } from './session-name.mjs';
 import { launcherArgs } from './harness-launcher.mjs';
 import { findSoloCli, launchInSolo } from './solo-workspace.mjs';
@@ -242,6 +244,17 @@ async function ensureHarnessAuthentication(harness, project, dependencies = {}) 
   if (status.authenticated === false) throw new Error(`${harness} is still not signed in after login`);
 }
 
+async function ensureModelSelection(harness, { home = homeDirectory(), input = process.stdin, output = process.stdout, inventory = modelInventory(home, harness), force = false, prompt = null } = {}) {
+  const previous = loadModelSelection(home, harness);
+  if (!force && validSelection(previous, inventory)) return previous;
+  if (!prompt && (!input.isTTY || !output.isTTY)) throw new Error('Model choices are missing, from another computer, or no longer listed. Run `lenka setup` in an interactive terminal.');
+  const questions = prompt || readline.createInterface({ input, output });
+  try {
+    const models = await chooseModels({ harness, inventory, previous, question: text => questions.question(text), write: text => output.write(text + '\n') });
+    return saveModelSelection(home, harness, models);
+  } finally { if (!prompt) questions.close(); }
+}
+
 async function setup(options, { continueToLaunch = false } = {}) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('lenka setup requires an interactive terminal');
   const home = homeDirectory();
@@ -278,6 +291,8 @@ async function setup(options, { continueToLaunch = false } = {}) {
         if (loginStatus !== 0) throw new Error(`${harness} login did not complete`);
       }
     }
+
+    if (harness !== 'opencode') await ensureModelSelection(harness, { home, force: true, prompt });
 
     const workspaces = workspaceChoices({
       platform: process.platform,
@@ -438,10 +453,15 @@ async function up(options, dependencies = {}) {
     options.workspace = preferences.workspace;
     options.herdr = preferences.workspace === 'herdr';
   }
-  const harness = options.ask ? await chooseHarness() : (options.harness || preferences?.harness || 'auto');
+  let harness = options.ask ? await chooseHarness() : (options.harness || preferences?.harness || 'auto');
   await ensureAuthentication(harness, options.project);
+  if (harness === 'auto') {
+    harness = selectRuntime(options.project, harness)?.harness || recommendHarness(inspectHarnesses(executable, runCaptured, options.project), preferences);
+    if (!harness) throw new Error('Choose an AI tool with lenka setup before starting.');
+  }
+  const selection = harness === 'opencode' ? null : await (dependencies.ensureModelSelection ?? ensureModelSelection)(harness);
   const installed = selectRuntime(options.project, harness);
-  if (installed) {
+  if (installed && (!selection || runtimeMatchesSelection(installed.manifest, selection))) {
     try {
       const launched = await launchRuntime(installed, options);
       if (launched !== null) return launched;
@@ -460,18 +480,20 @@ async function up(options, dependencies = {}) {
     windows.push('-NoLaunch');
     if (options.workspace === 'herdr') windows.push('-UseHerdr');
     const installedStatus = execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repoRoot, 'bootstrap.ps1'), ...windows]);
-    if (installedStatus !== 0 || options.noLaunch) return installedStatus;
+    if (installedStatus !== 0) return installedStatus;
     const runtime = selectRuntime(options.project, harness);
-    if (!runtime) throw new Error(`no verified ${harness} runtime exists after installation`);
+    if (!runtime || (selection && !runtimeMatchesSelection(runtime.manifest, selection))) throw new Error('Installed runtime does not match your model choices; no session was launched.');
+    if (options.noLaunch) return 0;
     return launchRuntime(runtime, options);
   }
   const common = ['--project', options.project, '--project-only', '--conflict', options.conflict, '--harness', harness];
   common.push('--no-launch');
   if (options.workspace === 'herdr') common.push('--herdr');
   const installedStatus = execute('sh', [path.join(repoRoot, 'bootstrap.sh'), ...common]);
-  if (installedStatus !== 0 || options.noLaunch) return installedStatus;
+  if (installedStatus !== 0) return installedStatus;
   const runtime = selectRuntime(options.project, harness);
-  if (!runtime) throw new Error(`no verified ${harness} runtime exists after installation`);
+  if (!runtime || (selection && !runtimeMatchesSelection(runtime.manifest, selection))) throw new Error('Installed runtime does not match your model choices; no session was launched.');
+  if (options.noLaunch) return 0;
   return launchRuntime(runtime, options);
 }
 
@@ -692,4 +714,4 @@ if (invokedFile === fileURLToPath(import.meta.url)) {
   }
 }
 
-export { ensureHarnessAuthentication, launchInstalledRuntime, main, manifests, needsFirstRunSetup, parse, selectInstalledRuntime, setup, shouldOpenHerdr, up };
+export { ensureModelSelection, ensureHarnessAuthentication, launchInstalledRuntime, main, manifests, needsFirstRunSetup, parse, selectInstalledRuntime, setup, shouldOpenHerdr, up };
