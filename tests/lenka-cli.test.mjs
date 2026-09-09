@@ -106,11 +106,11 @@ test('Lenka defaults up to auto and the current project', async () => {
 
 test('first use asks for every missing choice while a fully explicit launch remains scriptable', async () => {
   const { needsFirstRunSetup, parse } = await import('../lenka.mjs');
-  assert.equal(needsFirstRunSetup(parse(['up']), null), true);
+  assert.equal(needsFirstRunSetup(parse(['up']), null), false);
   assert.equal(needsFirstRunSetup(parse(['up']), { harness: 'codex', workspace: 'direct' }), false);
   assert.equal(needsFirstRunSetup(parse(['up', 'cursor']), null), true);
   assert.equal(needsFirstRunSetup(parse(['up', '--direct']), null), true);
-  assert.equal(needsFirstRunSetup(parse(['up', '--ask']), null), true);
+  assert.equal(needsFirstRunSetup(parse(['up', '--ask']), null), false);
   assert.equal(needsFirstRunSetup(parse(['up', 'cursor', '--direct']), null), false);
 });
 
@@ -225,4 +225,31 @@ test('Lenka stops with the exact login command before probing an unauthenticated
     input: { isTTY: false },
     output: { isTTY: false },
   }), /cursor is installed but not signed in\. Run: agent login/);
+});
+
+test('plain up asks every time and stays in the current terminal despite saved Herdr/Codex choices', async () => {
+  const { up, parse } = await import('../lenka.mjs');
+  const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lenka-plain-up-')));
+  const choices = ['opencode', 'kimi'];
+  let prompts = 0;
+  const launched = [];
+  for (const preferences of [{ harness: 'codex', workspace: 'herdr' }, null]) {
+    await up(parse(['up', '--project', project]), {
+      loadPreferences: () => preferences,
+      chooseHarness: async () => choices[prompts++],
+      ensureHarnessAuthentication: async () => {},
+      ensureModelSelection: async () => null,
+      selectInstalledRuntime: (_project, harness) => ({ harness, manifest: {} }),
+      launchInstalledRuntime: (runtime, options) => {
+        launched.push(runtime.harness);
+        assert.equal(options.workspace, 'direct');
+        assert.equal(options.herdr, false);
+        assert.equal(options.project, project);
+        return 0;
+      },
+      run: () => { throw new Error('unexpected bootstrap'); },
+    });
+  }
+  assert.equal(prompts, 2);
+  assert.deepEqual(launched, choices);
 });

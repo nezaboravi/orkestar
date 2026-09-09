@@ -1,5 +1,12 @@
 # Release notes
 
+## 0.1.7 — 2026-09-09
+
+- Plain `lenka up` always asks for the AI tool and stays in the current terminal,
+  including Solo terminals. Saved Codex/Herdr choices cannot bypass the prompt
+  or nest Herdr. Explicit workspace launches retain their existing behavior.
+- Make model-selection tests portable across Windows paths and Linux containers.
+
 ## 0.1.6 — 2026-09-09
 
 - Publish the previously local bounded worker sessions, receipt-bound continuation,

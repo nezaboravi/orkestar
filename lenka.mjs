@@ -51,15 +51,15 @@ Usage:
 Options:
   --project PATH       Project to open (default: current directory)
   --ask                Choose the harness interactively
-  --herdr              Run inside Herdr (default)
+  --herdr              Run inside Herdr explicitly
   --solo               Run inside Solo
   --direct             Open the selected CLI without a workspace app
   --no-launch          Install and verify without opening the selected CLI
   --conflict POLICY    fail, skip, or backup (default for up: backup)
   --help               Show this help
 
-The first plain \`lenka up\` opens setup so you choose the AI service and
-workspace. Run \`lenka setup\` whenever you want to change those choices.
+Plain \`lenka up\` asks which AI tool to use every time and stays in the current
+terminal. Use \`--solo\` or \`--herdr\` to choose a workspace explicitly.
 
 Examples:
   lenka up
@@ -439,6 +439,7 @@ async function up(options, dependencies = {}) {
   if (!fs.existsSync(options.project) || !fs.statSync(options.project).isDirectory()) {
     throw new Error(`project directory does not exist: ${options.project}`);
   }
+  const plainLaunch = !options.harness && !options.workspaceExplicit;
   let preferences = loadSavedPreferences(homeDirectory());
   if (needsFirstRunSetup(options, preferences)) {
     if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -449,11 +450,16 @@ async function up(options, dependencies = {}) {
     preferences = loadSavedPreferences(homeDirectory());
     if (!preferences) throw new Error('Lenka setup finished without saving preferences');
   }
-  if (!options.workspaceExplicit && preferences?.workspace) {
+  if (plainLaunch) {
+    options.workspace = 'direct';
+    options.herdr = false;
+  } else if (!options.workspaceExplicit && preferences?.workspace) {
     options.workspace = preferences.workspace;
     options.herdr = preferences.workspace === 'herdr';
   }
-  let harness = options.ask ? await chooseHarness() : (options.harness || preferences?.harness || 'auto');
+  let harness = options.ask || plainLaunch
+    ? await (dependencies.chooseHarness ?? chooseHarness)()
+    : (options.harness || preferences?.harness || 'auto');
   await ensureAuthentication(harness, options.project);
   if (harness === 'auto') {
     harness = selectRuntime(options.project, harness)?.harness || recommendHarness(inspectHarnesses(executable, runCaptured, options.project), preferences);
@@ -498,6 +504,7 @@ async function up(options, dependencies = {}) {
 }
 
 function needsFirstRunSetup(options, preferences) {
+  if (!options.harness && !options.workspaceExplicit) return false;
   return !preferences && !(options.harnessExplicit && options.workspaceExplicit);
 }
 
