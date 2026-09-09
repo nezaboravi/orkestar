@@ -1,5 +1,14 @@
 # Release notes
 
+## 0.1.10 — 2026-09-09
+
+- Search and page model choices instead of printing the entire inventory.
+- Offer run-only, project-specific and default team scopes, preserving legacy
+  choices as defaults and binding external workers to a run snapshot.
+- Show the active team and a numbered start/change action at every interactive
+  launch. Use vertical numbered effort choices and retry invalid inputs without
+  discarding earlier answers.
+
 ## 0.1.9 — 2026-09-09
 
 - Accept verified mixed-model classes when refreshing cached runtime routes,

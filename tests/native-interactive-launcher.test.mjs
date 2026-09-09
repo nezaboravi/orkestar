@@ -116,3 +116,11 @@ test('real subprocess inherits multiline stdin and stdout bytes through the inte
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, input);
 });
+
+test('Solo conductor identity and arguments bind the selected team snapshot',()=>{
+ const project=projectFixture();
+ const runtime={harness:'codex',binary:process.execPath,teamRun:'a'.repeat(64),manifest:{primary:{model:'fixture-model',reasoningEffort:'low'}}};
+ const args=interactiveArgs(runtime,project),spec=parseInteractiveArgs(args.slice(1));
+ assert.equal(spec.teamRun,runtime.teamRun);
+ assert.notEqual(spec.marker,interactiveSpec({harness:'codex',binary:process.execPath,project,model:'fixture-model',effort:'low',teamRun:'b'.repeat(64)}).marker);
+});

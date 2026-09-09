@@ -13,30 +13,31 @@ import { launcherArgs } from './harness-launcher.mjs';
 const script = fileURLToPath(import.meta.url);
 const harnesses = new Set(['codex', 'claude', 'opencode', 'kimi', 'cursor']);
 
-export function interactiveSpec({ harness, binary, project, model, effort = null }) {
+export function interactiveSpec({ harness, binary, project, model, effort = null, teamRun = null }) {
   if (!harnesses.has(harness) || !path.isAbsolute(binary || '') || !model
     || /[\0\r\n]/.test(binary)) throw new Error('Missing verified interactive harness route');
+  if (teamRun !== null && !/^[a-f0-9]{64}$/.test(teamRun)) throw new Error('Invalid team session');
   project = fs.realpathSync(project);
   const args = launcherArgs(harness, model, project, effort, { workspace: 'solo' });
-  const digest = createHash('sha256').update(JSON.stringify({ script, harness, binary, project, args }));
+  const digest = createHash('sha256').update(JSON.stringify({ script, harness, binary, project, args, teamRun }));
   for (const file of [script, path.join(path.dirname(script), 'harness-launcher.mjs')]) {
     const stat = fs.lstatSync(file);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 256 * 1024) throw new Error('Unsafe installed interactive launcher');
     digest.update(fs.readFileSync(file));
   }
-  return { binary, project, args, marker: `ORKESTAR_NATIVE_UI_${digest.digest('hex')}` };
+  return { binary, project, args, ...(teamRun ? {teamRun} : {}), marker: `ORKESTAR_NATIVE_UI_${digest.digest('hex')}` };
 }
 
 export function interactiveArgs(runtime, project) {
   const { model, reasoningEffort: effort } = runtime.manifest.primary;
-  const spec = interactiveSpec({ harness: runtime.harness, binary: runtime.binary, project, model, effort });
+  const spec = interactiveSpec({ harness: runtime.harness, binary: runtime.binary, project, model, effort, teamRun:runtime.teamRun || null });
   return [script, '--project', spec.project, '--harness', runtime.harness, '--binary', runtime.binary,
-    '--model', model, ...(effort ? ['--effort', effort] : []), '--marker', spec.marker];
+    '--model', model, ...(effort ? ['--effort', effort] : []), ...(spec.teamRun ? ['--teamRun',spec.teamRun] : []), '--marker', spec.marker];
 }
 
 export function parseInteractiveArgs(argv) {
   const options = {};
-  const allowed = new Set(['project', 'harness', 'binary', 'model', 'effort', 'marker']);
+  const allowed = new Set(['project', 'harness', 'binary', 'model', 'effort', 'marker', 'teamRun']);
   for (let index = 0; index < argv.length; index += 2) {
     const key = argv[index]?.replace(/^--/, '');
     if (!argv[index]?.startsWith('--') || !allowed.has(key) || key in options || !argv[index + 1]) {
@@ -53,7 +54,7 @@ export function runInteractive(spec, dependencies = {}) {
   const host = dependencies.host || process;
   const start = dependencies.spawn || spawn;
   return new Promise((resolve) => {
-    const child = start(spec.binary, spec.args, { cwd: spec.project, stdio: 'inherit', env: host.env });
+    const child = start(spec.binary, spec.args, { cwd: spec.project, stdio: 'inherit', env: spec.teamRun ? {...host.env,LENKA_TEAM_RUN:spec.teamRun} : host.env });
     const handlers = new Map();
     // A PTY sends Ctrl-C to the foreground group itself. Forward termination
     // addressed to just this wrapper (e.g. Solo Stop), without double Ctrl-C.

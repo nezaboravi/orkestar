@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { resolveTeam } from './team-selection.mjs';
 /** Portable, dependency-free installer and doctor for agent-orchestra. */
 
 import { teamInstructions } from './team-routing.mjs';
@@ -989,7 +990,7 @@ function buildPlan(options) {
         const extension = tool === 'codex' ? '.toml' : '.md';
         const selectedModel = selectedAgentModel(agent.name, resolvedModels, resolvedFactoryModels);
         const reasoningEffort = agent.name === 'lenka' && options.modelSelectionsByTool?.[tool]?.primaryEffort || selectedAgentReasoning(agent.name, tool);
-        operations.push({ target: path.join(globalAgents, `${agent.name}${extension}`), content: convert(agent.name === 'lenka' && options.modelSelectionsByTool?.[tool]?.externalWorkers ? { ...agent, body: agent.body + teamInstructions(tool) } : agent, tool, selectedModel, reasoningEffort), kind: `${tool} agent` });
+        operations.push({ target: path.join(globalAgents, `${agent.name}${extension}`), content: convert(agent.name === 'lenka' && options.modelSelectionsByTool?.[tool]?.externalWorkers ? { ...agent, body: agent.body + teamInstructions(tool, options.modelSelectionsByTool[tool]) } : agent, tool, selectedModel, reasoningEffort), kind: `${tool} agent` });
       }
       const personaContent = tool === 'cursor'
         ? `---\ndescription: Lenka orchestrator persona\nalwaysApply: true\n---\n\n${persona}`
@@ -1029,7 +1030,7 @@ function buildPlan(options) {
         const extension = tool === 'codex' ? '.toml' : '.md';
         const selectedModel = selectedAgentModel(agent.name, resolvedModels, resolvedFactoryModels);
         const reasoningEffort = agent.name === 'lenka' && options.modelSelectionsByTool?.[tool]?.primaryEffort || selectedAgentReasoning(agent.name, tool);
-        operations.push({ target: path.join(projectAgents, `${agent.name}${extension}`), content: convert(agent.name === 'lenka' && options.modelSelectionsByTool?.[tool]?.externalWorkers ? { ...agent, body: agent.body + teamInstructions(tool) } : agent, tool, selectedModel, reasoningEffort), kind: `${tool} project agent` });
+        operations.push({ target: path.join(projectAgents, `${agent.name}${extension}`), content: convert(agent.name === 'lenka' && options.modelSelectionsByTool?.[tool]?.externalWorkers ? { ...agent, body: agent.body + teamInstructions(tool, options.modelSelectionsByTool[tool]) } : agent, tool, selectedModel, reasoningEffort), kind: `${tool} project agent` });
       }
       operations.push({
         target: path.join(options.project, '.agent-orchestra', 'runtime', `${tool}.json`),
@@ -1250,7 +1251,7 @@ function doctor(options) {
   options.resolvedFactoryModelsByTool = {};
   for (const tool of options.selectedTools.filter((candidate) => Object.keys(declaredRoles(candidate)).length)) {
     const inventory = options.structural && tool === 'claude' ? declaredModels(tool) : modelInventory(options.home, tool);
-    const selection = tool === 'opencode' ? null : loadModelSelection(options.home, tool, undefined, { strict: true });
+    const selection = tool === 'opencode' ? null : resolveTeam(options.home, tool, options.project);
     if (selection && !validSelection(selection, inventory)) throw new Error('A selected model is no longer listed. Run lenka setup to choose again.');
     if (selection) options.modelSelectionsByTool[tool] = selection;
     const probeCache = new Map();
@@ -1304,7 +1305,7 @@ function main(argv = process.argv.slice(2)) {
   options.resolvedFactoryModelsByTool = {};
   for (const tool of options.selectedTools.filter((candidate) => Object.keys(declaredRoles(candidate)).length)) {
     const inventory = options.structural && tool === 'claude' ? declaredModels(tool) : modelInventory(options.home, tool);
-    const selection = tool === 'opencode' ? null : loadModelSelection(options.home, tool, undefined, { strict: true });
+    const selection = tool === 'opencode' ? null : resolveTeam(options.home, tool, options.project);
     if (selection && !validSelection(selection, inventory)) throw new Error('A selected model is no longer listed. Run lenka setup to choose again.');
     if (selection) options.modelSelectionsByTool[tool] = selection;
     if (options.structural || options.dryRun) {

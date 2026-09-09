@@ -14,11 +14,10 @@ test('Auto selects actual separate CLI routes and effort for each responsibility
   assert.deepEqual(await chooseTeam({catalog,primary:'kimi-code/k3',question:async()=>answers.shift(),write:text=>output.push(text)}),team);
   assert.ok(output.some(line=>line.includes('codex / gpt-5.6-sol / high')));
 });
-test('manual reviewer cannot select the primary or builder model; invalid effort fails closed', async () => {
+test('manual reviewer cannot select the primary or builder model', async () => {
   assert.equal(validTeam({...team,strongest:team.mid},'kimi-code/k3'),false);
   assert.equal(validTeam(team,'gpt-5.6-sol'),false);
-  const answers=['1','max'];
-  await assert.rejects(chooseTeam({catalog,primary:'kimi-code/k3',question:async()=>answers.shift(),write:()=>{}}),/Unsupported effort/);
+
 });
 function fixture() {
   const project=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'cross-worker-')));
@@ -87,7 +86,7 @@ test('legacy Kimi choices migrate to the actual team picker and save all externa
     t.mock.method(fs, 'readFileSync', (file, ...args) => file === '/etc/machine-id' ? 'fixture-machine-id' : read(file, ...args));
   }
   const {ensureModelSelection} = await import('../lenka.mjs');
-  const home=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'cross-picker-'))),answers=['0','0','auto','0','auto','0','auto','y'];
+  const home=fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(),'cross-picker-'))),answers=['0','0','auto','0','auto','0','auto','2'];
   const selected=await ensureModelSelection('kimi',{home,inventory:['kimi-code/k3'],teamCatalog:catalog,prompt:{question:async()=>answers.shift()},output:{write:()=>{}}});
   assert.deepEqual(selected.externalWorkers,team);assert.equal(selected.models.lenka,'kimi-code/k3');assert.equal(answers.length,0);
 });

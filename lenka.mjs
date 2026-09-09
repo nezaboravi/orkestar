@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { chooseEffort, chooseValue } from './searchable-choice.mjs';
+import { resolveTeam, saveTeam, snapshotTeam } from './team-selection.mjs';
 import { chooseTeam, validTeam } from './team-routing.mjs';
 
 import fs from 'node:fs';
@@ -246,12 +248,21 @@ async function ensureHarnessAuthentication(harness, project, dependencies = {}) 
   if (status.authenticated === false) throw new Error(`${harness} is still not signed in after login`);
 }
 
-async function ensureModelSelection(harness, { home = homeDirectory(), input = process.stdin, output = process.stdout, inventory = modelInventory(home, harness), force = false, prompt = null, configureTeam = true, teamCatalog = null } = {}) {
-  const previous = loadModelSelection(home, harness);
-  if (!force && validSelection(previous, inventory) && (!configureTeam || validTeam(previous.externalWorkers, previous.models.lenka))) return previous;
+async function ensureModelSelection(harness, { home = homeDirectory(), input = process.stdin, output = process.stdout, inventory = modelInventory(home, harness), force = false, prompt = null, configureTeam = true, teamCatalog = null, project = process.cwd() } = {}) {
+  const previous = configureTeam ? resolveTeam(home,harness,project,{active:false,strict:false}) : loadModelSelection(home,harness);
+  const reusable = !force && validSelection(previous,inventory) && (!configureTeam || validTeam(previous.externalWorkers,previous.models.lenka));
+  if (reusable && !configureTeam) return previous;
+  if (reusable && !prompt && (!input.isTTY || !output.isTTY)) return snapshotTeam(home,project,previous);
   if (!prompt && (!input.isTTY || !output.isTTY)) throw new Error('Model choices are missing, from another computer, or no longer listed. Run `lenka setup` in an interactive terminal.');
   const questions = prompt || readline.createInterface({ input, output });
   try {
+    if (reusable) {
+      output.write(`\nActive team for ${project} (${previous.scope}):\n- Lenka: ${previous.models.lenka} / ${previous.primaryEffort || 'native effort'}\n`);
+      for (const role of ['mid','economy','strongest']) { const r = previous.externalWorkers[role]; output.write(`- ${{mid:'Implementation worker',economy:'Light checks',strongest:'Independent reviewer'}[role]}: ${r.harness} / ${r.model} / ${r.effort}\n`); }
+      output.write('  1. Start with this team\n  2. Change team\n');
+      const action = await chooseValue({question:text=>questions.question(text),write:text=>output.write(text+'\n'),prompt:'Team action [1]: ',values:{'1':'start','2':'change',c:'change',change:'change'},fallback:'1'});
+      if (action === 'start') return snapshotTeam(home,project,previous);
+    }
     const models = await chooseModels({ harness, inventory, previous, question: text => questions.question(text), write: text => output.write(text + '\n'), primaryOnly: configureTeam });
     if (!configureTeam) return saveModelSelection(home, harness, models);
     const catalog = teamCatalog ?? ['codex', 'claude'].flatMap(tool => {
@@ -265,12 +276,15 @@ async function ensureModelSelection(harness, { home = homeDirectory(), input = p
       if (!levels.length) throw new Error('No verified effort is available for Lenka');
       const preferred = harness === 'codex' ? 'low' : 'medium';
       const fallback = levels.includes(preferred) ? preferred : levels[0];
-      const answer = (await questions.question(`Lenka effort: auto (${fallback}), ${levels.join(', ')} [auto]: `)).trim().toLowerCase() || 'auto';
-      primaryEffort = answer === 'auto' ? fallback : answer;
-      if (!levels.includes(primaryEffort)) throw new Error('Unsupported Lenka effort');
+      output.write('\nLenka effort:\n');
+      primaryEffort = await chooseEffort({levels,fallback,question:text=>questions.question(text),write:text=>output.write(text+'\n')});
     } else output.write('Lenka effort: native CLI configuration (no verified per-launch effort override).\n');
-    const externalWorkers = await chooseTeam({ catalog, primary: models.lenka, question: text => questions.question(text), write: text => output.write(text + '\n') });
-    return saveModelSelection(home, harness, models, undefined, { primaryEffort, externalWorkers });
+    const externalWorkers = await chooseTeam({ catalog, primary: models.lenka, question: text => questions.question(text), write: text => output.write(text + '\n'), confirm:false });
+    output.write('\nUse this team:\n  1. This run only\n  2. Save for this project\n  3. Set as default for projects without their own team\n');
+    const scope = await chooseValue({question:text=>questions.question(text),write:text=>output.write(text+'\n'),prompt:'Save scope [2]: ',values:{'1':'once','2':'project','3':'default'},fallback:'2'});
+    const selected = saveTeam(home,harness,project,models,{primaryEffort,externalWorkers},scope);
+    output.write(`Team scope: ${scope}. On your next lenka up, choose 2 to change the team.\n`);
+    return snapshotTeam(home,project,selected);
   } finally { if (!prompt) questions.close(); }
 }
 
@@ -311,7 +325,7 @@ async function setup(options, { continueToLaunch = false } = {}) {
       }
     }
 
-    if (harness !== 'opencode') await ensureModelSelection(harness, { home, force: true, prompt });
+    if (harness !== 'opencode') options.activeSelection = await ensureModelSelection(harness, { home, force: true, prompt, project:options.project });
 
     const workspaces = workspaceChoices({
       platform: process.platform,
@@ -347,6 +361,10 @@ async function setup(options, { continueToLaunch = false } = {}) {
       console.log('Change these choices any time with: lenka setup');
       console.log(`One-time override: lenka up ${harness} --direct`);
     }
+    if (!continueToLaunch && options.activeSelection?.scope === 'once') {
+      prompt.close();
+      return up({...options,harness,harnessExplicit:true,workspace:workspace.id,workspaceExplicit:true,ask:false});
+    }
     return 0;
   } finally {
     prompt.close();
@@ -379,8 +397,9 @@ function shouldOpenHerdr(options, environment = process.env) {
 }
 
 async function launchInstalledRuntime(runtime, options, dependencies = {}) {
+  if (options.activeSelection?.teamRun) runtime = {...runtime,teamRun:options.activeSelection.teamRun};
   const refreshed = (dependencies.refreshProjectRuntime ?? refreshProjectRuntime)({ project: fs.realpathSync(options.project),
-    harness: runtime.harness, manifest: runtime.manifest, selection: loadModelSelection(homeDirectory(), runtime.harness) });
+    harness: runtime.harness, manifest: runtime.manifest, selection: options.activeSelection ?? (runtime.harness === 'opencode' ? null : resolveTeam(homeDirectory(),runtime.harness,options.project)) });
   console.log(options.workspace === 'solo' && !options.noLaunch ? '\nStarting Lenka in Solo…' : '\nLenka is ready.');
   console.log(`Project: ${options.project}`);
   console.log(`Harness: ${runtime.harness}`);
@@ -412,6 +431,7 @@ async function launchInstalledRuntime(runtime, options, dependencies = {}) {
   }
 
   const env = {
+    LENKA_TEAM_RUN: options.activeSelection?.teamRun || '',
     AGENT_ORCHESTRA_HARNESS: runtime.harness,
     AGENT_ORCHESTRA_HARNESS_BINARY: runtime.binary,
     AGENT_ORCHESTRA_PRIMARY_MODEL: runtime.manifest.primary.model,
@@ -426,7 +446,7 @@ async function launchInstalledRuntime(runtime, options, dependencies = {}) {
   if (!herdr || process.platform === 'win32') return null;
   const runtimeDirectory = path.join(homeDirectory(), '.local', 'share', 'agent-orchestra');
   fs.mkdirSync(runtimeDirectory, { recursive: true });
-  const session = herdrSessionName(options.project);
+  const session = herdrSessionName(options.project) + (options.activeSelection?.teamRun ? '-' + options.activeSelection.teamRun.slice(0,12) : '');
   console.log(`Workspace: Herdr (${session})`);
   const logFile = path.join(runtimeDirectory, `herdr-${session}.log`);
   const starter = spawn(process.execPath, [
@@ -484,7 +504,9 @@ async function up(options, dependencies = {}) {
     harness = selectRuntime(options.project, harness)?.harness || recommendHarness(inspectHarnesses(executable, runCaptured, options.project), preferences);
     if (!harness) throw new Error('Choose an AI tool with lenka setup before starting.');
   }
-  const selection = harness === 'opencode' ? null : await (dependencies.ensureModelSelection ?? ensureModelSelection)(harness);
+  const selection = harness === 'opencode' ? null : options.activeSelection ?? await (dependencies.ensureModelSelection ?? ensureModelSelection)(harness, {project:options.project});
+  options = {...options,activeSelection:selection};
+  const teamEnv = {LENKA_TEAM_RUN:selection?.teamRun || ''};
   const installed = selectRuntime(options.project, harness);
   if (installed && (!selection || runtimeMatchesSelection(installed.manifest, selection))) {
     try {
@@ -504,7 +526,7 @@ async function up(options, dependencies = {}) {
     const windows = ['-Project', options.project, '-ProjectOnly', '-Conflict', options.conflict, '-Harness', harness];
     windows.push('-NoLaunch');
     if (options.workspace === 'herdr') windows.push('-UseHerdr');
-    const installedStatus = execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repoRoot, 'bootstrap.ps1'), ...windows]);
+    const installedStatus = execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(repoRoot, 'bootstrap.ps1'), ...windows], {env:teamEnv});
     if (installedStatus !== 0) return installedStatus;
     const runtime = selectRuntime(options.project, harness);
     if (!runtime || (selection && !runtimeMatchesSelection(runtime.manifest, selection))) throw new Error('Installed runtime does not match your model choices; no session was launched.');
@@ -514,7 +536,7 @@ async function up(options, dependencies = {}) {
   const common = ['--project', options.project, '--project-only', '--conflict', options.conflict, '--harness', harness];
   common.push('--no-launch');
   if (options.workspace === 'herdr') common.push('--herdr');
-  const installedStatus = execute('sh', [path.join(repoRoot, 'bootstrap.sh'), ...common]);
+  const installedStatus = execute('sh', [path.join(repoRoot, 'bootstrap.sh'), ...common], {env:teamEnv});
   if (installedStatus !== 0) return installedStatus;
   const runtime = selectRuntime(options.project, harness);
   if (!runtime || (selection && !runtimeMatchesSelection(runtime.manifest, selection))) throw new Error('Installed runtime does not match your model choices; no session was launched.');

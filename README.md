@@ -2,9 +2,9 @@
 
 Lenka coordinates coding agents in your project using your own AI account.
 Orkestar provides the launcher, scoped workers, readable progress, and evidence
-collection. **Early release: 0.1.9.** Review the result before relying on it.
+collection. **Early release: 0.1.10.** Review the result before relying on it.
 
-See the [0.1.9 release notes](CHANGELOG.md) for model defaults, worker reuse
+See the [0.1.10 release notes](CHANGELOG.md) for model defaults, worker reuse
 and installation fixes.
 
 Plain `lenka up` asks which AI tool to use on every run and launches it in the
@@ -40,13 +40,31 @@ sandbox; Claude reviewers have no shell or write tools. Claude tool permissions
 are not an OS filesystem sandbox. Native worker continuation is not yet exposed
 by this cross-CLI command; it must not silently replace a failed worker.
 
-Choices are saved locally per tool and bound to the OS machine identity and home
-directory. A different computer, missing choices, or a model no longer listed
-requires a new selection. Run `lenka setup` again to change them. A copied project
-manifest cannot override these choices. Setup makes no generation requests;
-first installation still performs the existing access checks for the selected
-models, and a failed selection stops instead of silently choosing another model.
-Claude's list contains supported aliases, not a verified account entitlement list.
+At each interactive start, Lenka shows the active team and offers `1. Start` or
+`2. Change team`. Type a model name such as `grok` to search; results are shown
+in pages of twelve. Use a result number, `/next`, `/back`, or `/all`. Effort uses
+vertical numbered options: Auto, Low, Medium, High (only supported levels are
+shown). Invalid answers repeat the current question without losing earlier choices.
+
+After choosing a team, select one of three save scopes:
+
+1. **This run only** — changes no saved team. In standalone setup, this option
+   starts Lenka after the remaining setup questions.
+2. **Save for this project** — applies to this tool in this canonical project
+   directory, without changing other projects.
+3. **Set as default** — used in projects without an explicit project team.
+   Existing project overrides keep precedence on later launches.
+
+Legacy computer-wide choices become defaults. Project overrides and private run
+snapshots are stored under the machine's `.agent-orchestra/teams` directory,
+not in product repositories. Every launch binds its external workers to that
+run's team snapshot, so changing another project's team does not change it.
+Snapshots are local audit records, not future startup defaults. Choices remain
+bound to this machine and home directory; a new machine requires new selection.
+Use `lenka up` and choose `2` at the active-team question to change a team, or
+run `lenka setup --project PATH`. OpenCode retains autonomous routing.
+Setup makes no generation requests; first installation can still perform the
+existing model access checks. Claude aliases do not prove account entitlement.
 
 
 ## Install

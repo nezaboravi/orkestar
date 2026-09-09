@@ -1,3 +1,4 @@
+import { searchableChoice } from './searchable-choice.mjs';
 import { validTeam } from './team-routing.mjs';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -92,8 +93,7 @@ export async function chooseModels({ harness, inventory, question, write = conso
     ? '\nClaude aliases are supported choices; account access is not verified by this list.'
     : '\nModels reported by your tool; listing does not guarantee account access.');
   write('No generation requests are made while choosing. Recommendations balance everyday work and review; prices are not measured.');
-  if (primaryOnly) write('  0. Auto — use the recommended or current CLI model');
-  available.forEach((model, index) => write(`  ${index + 1}. ${model}`));
+  if (!primaryOnly) available.forEach((model, index) => write(`  ${index + 1}. ${model}`));
   const inherited = ['cursor', 'kimi'].includes(harness);
   if (inherited) write(primaryOnly ? 'Native children inherit Lenka’s model. Select separate CLI workers next.' : 'This adapter inherits one model for native workers.');
   const models = {};
@@ -103,10 +103,14 @@ export async function chooseModels({ harness, inventory, question, write = conso
     const selected = available.includes(prior) ? prior : recommended;
     const defaultIndex = selected ? available.indexOf(selected) + 1 : null;
     const description = selected === prior ? 'saved choice' : 'recommended';
+    if (primaryOnly) {
+      models[key] = (await searchableChoice({items:available,recommended:selected || available[0],question,write,title:labels[key]})).item;
+    } else {
     const answer = (await question(`${labels[key]}${primaryOnly ? ' [0: Auto]' : selected ? ` [${defaultIndex}: ${selected}, ${description}]` : ' (choose a number; no known recommendation)'}: `)).trim();
     const index = primaryOnly && ['', '0'].includes(answer) ? (defaultIndex || 1) : answer === '' ? defaultIndex : (/^\d+$/.test(answer) ? Number(answer) : null);
     if (!index || !available[index - 1]) throw new Error('Invalid model selection; no choices were saved.');
     models[key] = available[index - 1];
+    }
   }
   if (inherited) for (const key of purposes) models[key] = models.lenka;
   else if (primaryOnly) for (const key of purposes) models[key] ??= defaults[key] || models.lenka;

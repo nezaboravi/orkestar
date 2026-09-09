@@ -1,3 +1,4 @@
+import { resolveTeam, loadTeamRun } from './team-selection.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -33,10 +34,10 @@ function locate(name) {
   }
   throw new Error(`${name} CLI is not available`);
 }
-export function runCrossWorker({ project, harness, role, taskFile }, { home = os.homedir(), invoke = spawnSync, find = locate, selection = null, inventory = modelInventory } = {}) {
+export function runCrossWorker({ project, harness, role, taskFile, team }, { home = os.homedir(), invoke = spawnSync, find = locate, selection = null, inventory = modelInventory } = {}) {
   project = fs.realpathSync(project);
   if (!roles[role]) throw new Error('Unknown worker role');
-  const chosen = selection ?? loadModelSelection(home, harness, undefined, { strict: true });
+  const chosen = selection ?? (team ? loadTeamRun(home,harness,project,team) : resolveTeam(home,harness,project));
   if (!chosen || chosen.harness !== harness || !validTeam(chosen.externalWorkers, chosen.models?.lenka)) throw new Error('Configure an explicit cross-CLI team with lenka setup first');
   const route = chosen.externalWorkers[role];
   const binary = find(route.harness);
@@ -88,10 +89,10 @@ export function runCrossWorker({ project, harness, role, taskFile }, { home = os
 export function crossWorkerCli(args) {
   const options = {};
   for (let i = 0; i < args.length; i += 2) {
-    if (!['--harness', '--role', '--task', '--project'].includes(args[i]) || !args[i + 1] || options[args[i]]) throw new Error('Use lenka delegate --harness TOOL --role mid|economy|strongest --task PROJECT_FILE');
+    if (!['--harness', '--role', '--task', '--project', '--team'].includes(args[i]) || !args[i + 1] || options[args[i]]) throw new Error('Use lenka delegate --harness TOOL --role mid|economy|strongest --task PROJECT_FILE');
     options[args[i]] = args[i + 1];
   }
-  const result = runCrossWorker({ project: options['--project'] ?? process.cwd(), harness: options['--harness'], role: options['--role'], taskFile: options['--task'] });
+  const result = runCrossWorker({ project: options['--project'] ?? process.cwd(), harness: options['--harness'], role: options['--role'], taskFile: options['--task'], team:options['--team'] });
   console.log(JSON.stringify(result, null, 2));
   return result.complete ? 0 : 1;
 }
